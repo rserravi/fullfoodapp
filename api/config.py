@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     # Core
     log_level: str = "INFO"
     service_env: str = "dev"  # dev|prod
+    server_public_url: str = "http://localhost:8000"  # usado en OpenAPI.servers
 
     # Ollama / LLM
     ollama_url: str = "http://localhost:11434"
