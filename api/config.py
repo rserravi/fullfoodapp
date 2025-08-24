@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     cors_allow_methods: str = "*"
     cors_allow_headers: str = "*"
 
+    # DB local (SQLite file)
+    db_url: str = "sqlite:///./fullfood.db"
+
     def parsed_embedding_models(self) -> list[str]:
         return [m.strip() for m in self.embedding_models.split(",") if m.strip()]
 

@@ -16,6 +16,8 @@ from .compiler.compiler import compile_recipe
 from .rag import hybrid_retrieve, build_context
 from .llm import generate_json
 from .utils.json_repair import repair_json_minimal, repair_via_llm
+from .db import init_db
+from .routes.shopping import router as shopping_router
 
 app = FastAPI(default_response_class=ORJSONResponse, title="FullFoodApp API")
 
@@ -30,9 +32,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    # No dependemos de Ollama aquí; tomamos dimensiones desde .env
-    vector_dims = settings.parsed_vector_dims()  # ej: {"mxbai":1024, "jina":768}
+    # DB local
+    init_db()
+    # Qdrant (vectores con nombre, dims desde .env)
+    vector_dims = settings.parsed_vector_dims()
     await ensure_collection(vector_dims)
+
+# Routers de features
+app.include_router(shopping_router)
 
 @app.get("/health")
 async def health():
@@ -64,7 +71,6 @@ def choose_vector(query: str, requested: str) -> str:
 @app.post("/search", response_model=SearchResponse)
 async def search_route(req: SearchRequest):
     vector_name = choose_vector(req.query, req.vector)
-    # mapea nombre de vector → modelo real (ajustable si añades más)
     model_map = {"mxbai": "mxbai-embed-large", "jina": "jina/jina-embeddings-v2-base-es"}
     vec = await embed_single(req.query, model_map[vector_name])
     hits = await search(req.query, vec, vector_name, req.top_k)
