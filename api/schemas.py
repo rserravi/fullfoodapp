@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
+from typing_extensions import Literal
+from pydantic import BaseModel, Field, field_validator
 
 class Document(BaseModel):
     id: Optional[str] = None
@@ -23,7 +24,10 @@ class SearchHit(BaseModel):
 class SearchResponse(BaseModel):
     hits: List[SearchHit]
 
-# Para recetas (stub MVP)
+# === Recetas ===
+
+ActionLiteral = Literal["prep", "season", "preheat", "cook", "flip", "rest", "serve"]
+
 class RecipeGenRequest(BaseModel):
     ingredients: List[str]
     portions: int = 2
@@ -31,7 +35,7 @@ class RecipeGenRequest(BaseModel):
     dietary: List[str] = []  # p. ej. ["vegetariano", "sin_gluten"]
 
 class StepGeneric(BaseModel):
-    action: str
+    action: ActionLiteral
     description: str
     ingredients: List[str] = []
     tools: List[str] = []
@@ -40,6 +44,20 @@ class StepGeneric(BaseModel):
     speed: Optional[str] = None
     notes: Optional[str] = None
     batching: bool = False
+
+    @field_validator("time_min")
+    @classmethod
+    def _time_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("time_min debe ser > 0")
+        return v
+
+    @field_validator("temperature_c")
+    @classmethod
+    def _temp_reasonable(cls, v):
+        if v is not None and not (0 <= v <= 300):
+            raise ValueError("temperature_c fuera de rango razonable (0..300°C)")
+        return v
 
 class RecipeNeutral(BaseModel):
     title: str

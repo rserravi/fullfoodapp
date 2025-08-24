@@ -1,16 +1,32 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import ORJSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict
+from pathlib import Path
 import json
+
 from .config import settings
-from .schemas import IngestRequest, SearchRequest, SearchResponse, SearchHit, RecipeGenRequest, RecipeNeutral, RecipePlan
+from .schemas import (
+    IngestRequest, SearchRequest, SearchResponse, SearchHit,
+    RecipeGenRequest, RecipeNeutral, RecipePlan
+)
 from .embeddings import embed_dual, embed_single
 from .vectorstore import ensure_collection, upsert_documents, search
 from .compiler.compiler import compile_recipe
 from .rag import hybrid_retrieve, build_context
 from .llm import generate_json
+from .utils.json_repair import repair_json_minimal, repair_via_llm
 
 app = FastAPI(default_response_class=ORJSONResponse, title="FullFoodApp API")
+
+# --- CORS desde .env ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.cors_allow_origins.split(",")] if settings.cors_allow_origins != "*" else ["*"],
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=[m.strip() for m in settings.cors_allow_methods.split(",")] if settings.cors_allow_methods != "*" else ["*"],
+    allow_headers=[h.strip() for h in settings.cors_allow_headers.split(",")] if settings.cors_allow_headers != "*" else ["*"],
+)
 
 @app.on_event("startup")
 async def startup():
@@ -48,7 +64,7 @@ def choose_vector(query: str, requested: str) -> str:
 @app.post("/search", response_model=SearchResponse)
 async def search_route(req: SearchRequest):
     vector_name = choose_vector(req.query, req.vector)
-    # Mapea nombre de vector → modelo real (por ahora fijo, documentar en README)
+    # mapea nombre de vector → modelo real (ajustable si añades más)
     model_map = {"mxbai": "mxbai-embed-large", "jina": "jina/jina-embeddings-v2-base-es"}
     vec = await embed_single(req.query, model_map[vector_name])
     hits = await search(req.query, vec, vector_name, req.top_k)
@@ -72,13 +88,11 @@ async def gen_recipe(req: RecipeGenRequest):
 
     context = build_context(hits)
 
-    # 2) Build prompt from template
-    tmpl_path = "prompts/recipe_generation.md"
-    try:
-        with open(tmpl_path, "r", encoding="utf-8") as f:
-            tmpl = f.read()
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="No se encuentra la plantilla de prompt.")
+    # 2) Build prompt from template (ruta robusta)
+    tmpl_path = Path(__file__).resolve().parent / "prompts" / "recipe_generation.md"
+    if not tmpl_path.exists():
+        raise HTTPException(status_code=500, detail=f"No se encuentra la plantilla de prompt en: {tmpl_path}")
+    tmpl = tmpl_path.read_text(encoding="utf-8")
 
     prompt = (tmpl
         .replace("{{ingredients}}", ", ".join(req.ingredients))
@@ -93,12 +107,25 @@ async def gen_recipe(req: RecipeGenRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Fallo al llamar al LLM: {e}")
 
-    # 4) Parse & validate
+    # 4) Parse & validate (auto-repair si hace falta)
     try:
         data = json.loads(raw_json)
+    except Exception:
+        ok, repaired = repair_json_minimal(raw_json)
+        if ok:
+            data = json.loads(repaired)
+        else:
+            try:
+                repaired_llm = await repair_via_llm(raw_json)
+                data = json.loads(repaired_llm)
+            except Exception as e:
+                snippet = (raw_json or "")[:200]
+                raise HTTPException(status_code=500, detail=f"JSON inválido devuelto por el LLM y no se pudo reparar: {e}. Resp: {snippet}...")
+
+    try:
         recipe = RecipeNeutral(**data)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"JSON inválido devuelto por el LLM: {e}. Resp: {raw_json[:200]}...")
+        raise HTTPException(status_code=422, detail=f"El JSON no valida contra el esquema: {e}")
 
     # 5) Compile to appliances
     plans = compile_recipe(recipe, req.appliances)

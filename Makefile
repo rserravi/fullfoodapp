@@ -5,6 +5,7 @@ PORT ?= 8000
 ENV_FILE ?= .env
 VENV := .venv
 PY := $(VENV)/bin/python
+PYTEST := $(VENV)/bin/pytest
 
 # -------- Helpers ---------
 define check_env
@@ -25,8 +26,13 @@ help:
 	@echo "  make health       -> GET /health en el puerto $(PORT)"
 	@echo "  make down         -> Para Qdrant (docker compose down)"
 	@echo
+	@echo "Testing:"
+	@echo "  make test         -> Ejecuta tests unitarios (excluye 'integration')"
+	@echo "  make test-unit    -> Alias de 'make test'"
+	@echo "  make test-integration -> Ejecuta solo tests marcados como 'integration' (requiere Qdrant/Ollama)"
+	@echo
 	@echo "Extras:"
-	@echo "  make venv         -> Crea venv e instala requirements"
+	@echo "  make venv         -> Crea venv e instala requirements (api + dev)"
 	@echo "  make run          -> Arranca API local en $(PORT) (sin bootstrap)"
 	@echo "  make qdrant-up    -> Solo Qdrant"
 	@echo "  make qdrant-down  -> Para Qdrant"
@@ -56,7 +62,7 @@ down stop:
 .PHONY: venv
 venv:
 	@test -d $(VENV) || python3 -m venv $(VENV)
-	@source $(VENV)/bin/activate && pip install -r api/requirements.txt
+	@source $(VENV)/bin/activate && pip install -r api/requirements.txt -r requirements-dev.txt
 
 .PHONY: run
 run: venv
@@ -102,3 +108,20 @@ kill-port:
 	else \
 	  echo "✅ Puerto $(PORT) libre"; \
 	fi
+
+# --- Tests ---
+.PHONY: test
+test: venv
+	$(check_env)
+	PYTHONPATH=. $(PYTEST) -m "not integration" -q
+
+.PHONY: test-unit
+test-unit: test
+
+.PHONY: test-integration
+test-integration: venv qdrant-up
+	$(check_env)
+	# Ingesta mínima antes de los tests de integración
+	PYTHONPATH=. $(PY) -m api.ingest
+	# Ejecuta solo los tests integration (requiere Qdrant y Ollama)
+	PYTHONPATH=. $(PYTEST) -m "integration" -q
