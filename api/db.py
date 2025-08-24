@@ -8,5 +8,6 @@ def init_db() -> None:
     SQLModel.metadata.create_all(engine)
 
 def get_session() -> Iterator[Session]:
-    with Session(engine) as session:
+    # Desactiva la expiración de atributos tras commit (evita {} en respuestas)
+    with Session(engine, expire_on_commit=False) as session:
         yield session

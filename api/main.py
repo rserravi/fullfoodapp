@@ -18,6 +18,8 @@ from .llm import generate_json
 from .utils.json_repair import repair_json_minimal, repair_via_llm
 from .db import init_db
 from .routes.shopping import router as shopping_router
+from .routes.appliances import router as appliances_router
+from .routes.planner import router as planner_router
 
 app = FastAPI(default_response_class=ORJSONResponse, title="FullFoodApp API")
 
@@ -40,6 +42,8 @@ async def startup():
 
 # Routers de features
 app.include_router(shopping_router)
+app.include_router(appliances_router)
+app.include_router(planner_router)
 
 @app.get("/health")
 async def health():
@@ -59,7 +63,6 @@ async def ingest(req: IngestRequest):
     await upsert_documents(texts, payloads, embs)
     return {"ok": True, "count": len(texts)}
 
-# Heurística simple para elegir vector por idioma
 SPANISH_MARKERS = {" el ", " la ", " de ", " y ", " con ", " para ", " receta ", " ingredientes ", " minutos "}
 
 def choose_vector(query: str, requested: str) -> str:
@@ -86,7 +89,6 @@ async def search_route(req: SearchRequest):
 
 @app.post("/recipes/generate", response_model=RecipePlan)
 async def gen_recipe(req: RecipeGenRequest):
-    # 1) Retrieve
     query = ", ".join(req.ingredients) or "receta sencilla"
     hits = await hybrid_retrieve(query, top_k_each=5)
     if not hits:
@@ -94,7 +96,6 @@ async def gen_recipe(req: RecipeGenRequest):
 
     context = build_context(hits)
 
-    # 2) Build prompt from template (ruta robusta)
     tmpl_path = Path(__file__).resolve().parent / "prompts" / "recipe_generation.md"
     if not tmpl_path.exists():
         raise HTTPException(status_code=500, detail=f"No se encuentra la plantilla de prompt en: {tmpl_path}")
@@ -107,13 +108,11 @@ async def gen_recipe(req: RecipeGenRequest):
         .replace("{{context}}", context)
     )
 
-    # 3) Call LLM (JSON enforced)
     try:
         raw_json = await generate_json(prompt, model=settings.llm_model, temperature=0.2, max_tokens=1200)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Fallo al llamar al LLM: {e}")
 
-    # 4) Parse & validate (auto-repair si hace falta)
     try:
         data = json.loads(raw_json)
     except Exception:
@@ -121,19 +120,14 @@ async def gen_recipe(req: RecipeGenRequest):
         if ok:
             data = json.loads(repaired)
         else:
-            try:
-                repaired_llm = await repair_via_llm(raw_json)
-                data = json.loads(repaired_llm)
-            except Exception as e:
-                snippet = (raw_json or "")[:200]
-                raise HTTPException(status_code=500, detail=f"JSON inválido devuelto por el LLM y no se pudo reparar: {e}. Resp: {snippet}...")
+            repaired_llm = await repair_via_llm(raw_json)
+            data = json.loads(repaired_llm)
 
     try:
         recipe = RecipeNeutral(**data)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"El JSON no valida contra el esquema: {e}")
 
-    # 5) Compile to appliances
     plans = compile_recipe(recipe, req.appliances)
     if not plans:
         raise HTTPException(status_code=400, detail="Ningún electrodoméstico soportado en la petición.")
