@@ -41,3 +41,28 @@ class PlanEntry(SQLModel, table=True):
     recipe: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(SAJSON))
     appliances: Optional[List[str]] = Field(default=None, sa_column=Column(SAJSON))
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Product(SQLModel, table=True):
+    """
+    Catálogo de productos (posible por-usuario y/o global).
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)
+    user_id: str = Field(default="default", index=True)
+    name: str = Field(index=True, description="Nombre canónico en minúsculas (p.ej. 'calabacín')")
+    category: Optional[str] = Field(default=None, index=True)  # p.ej. verduras, lácteos, carnes, etc.
+    synonyms: Optional[List[str]] = Field(default=None, sa_column=Column(SAJSON))
+    is_global: bool = Field(default=False, index=True)  # visible para todos
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class KVCache(SQLModel, table=True):
+    """
+    Cache simple clave/valor por usuario.
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)
+    user_id: str = Field(default="default", index=True)
+    key: str = Field(index=True)
+    value: Dict[str, Any] = Field(sa_column=Column(SAJSON))
+    expires_at: Optional[datetime] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -7,3 +7,4 @@ python-dotenv==1.0.1
 orjson==3.10.7
 sqlmodel==0.0.16
 SQLAlchemy==2.0.31
+prometheus-fastapi-instrumentator>=6.1.0

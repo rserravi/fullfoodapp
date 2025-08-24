@@ -13,7 +13,7 @@ class IngestRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
-    vector: str = "auto"  # auto | mxbai | jina
+    vector: str = "auto"
 
 class SearchHit(BaseModel):
     id: str
@@ -24,15 +24,13 @@ class SearchHit(BaseModel):
 class SearchResponse(BaseModel):
     hits: List[SearchHit]
 
-# === Recetas ===
-
 ActionLiteral = Literal["prep", "season", "preheat", "cook", "flip", "rest", "serve"]
 
 class RecipeGenRequest(BaseModel):
     ingredients: List[str]
     portions: int = 2
     appliances: List[str] = ["airfryer"]
-    dietary: List[str] = []  # p. ej. ["vegetariano", "sin_gluten"]
+    dietary: List[str] = []
 
 class StepGeneric(BaseModel):
     action: ActionLiteral
@@ -90,13 +88,13 @@ class RecipePlan(BaseModel):
     recipe: RecipeNeutral
     plans: List[CompiledPlan]
 
-# === Ingredientes (extracción / agregado) ===
 class IngredientItem(BaseModel):
     name: str
     qty: Optional[float] = None
-    unit: Optional[str] = None  # "g" | "ml" | "ud" | None
+    unit: Optional[str] = None
 
 class AggregatedItem(BaseModel):
     name: str
     qty: Optional[float] = None
     unit: Optional[str] = None
+    category: Optional[str] = None

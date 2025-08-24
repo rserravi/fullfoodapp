@@ -17,23 +17,25 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     collection_name: str = "recipes"
 
-    # Vector dims (avoid Ollama call on startup)
+    # Vector dims
     vector_dims: str = "mxbai:1024,jina:768"
 
-    # CORS (para frontend en V2)
+    # CORS
     cors_allow_origins: str = "*"
     cors_allow_credentials: bool = True
     cors_allow_methods: str = "*"
     cors_allow_headers: str = "*"
 
-    # DB local (SQLite file)
+    # DB
     db_url: str = "sqlite:///./fullfood.db"
 
     # Auth / multiusuario
-    # Formato: "user1:key1,user2:key2"
     api_keys: str = "default:demo123"
-    # Si no viene cabecera, usar este usuario (para desarrollo local). Pon vacío para deshabilitar.
     auth_fallback_user: Optional[str] = "default"
+
+    # Rate limiting
+    rate_limit_rpm: int = 60      # peticiones/min por user
+    rate_limit_burst: int = 60    # burst máximo en ventana
 
     def parsed_embedding_models(self) -> list[str]:
         return [m.strip() for m in self.embedding_models.split(",") if m.strip()]
@@ -48,9 +50,6 @@ class Settings(BaseSettings):
         return out
 
     def parsed_api_keys(self) -> Dict[str, str]:
-        """
-        Devuelve dict token->user_id a partir de API_KEYS "user:key,user2:key2".
-        """
         mapping: Dict[str, str] = {}
         for pair in [p.strip() for p in self.api_keys.split(",") if p.strip()]:
             if ":" not in pair:

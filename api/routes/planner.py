@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 from datetime import date, timedelta
 from pathlib import Path
 import json
@@ -16,6 +16,7 @@ from ..llm import generate_json
 from ..compiler.compiler import compile_recipe
 from ..utils.json_repair import repair_json_minimal, repair_via_llm
 from ..security import get_current_user
+from ..services.cache import make_key, delete_key
 
 router = APIRouter(prefix="/planner", tags=["planner"])
 
@@ -27,6 +28,10 @@ def week_bounds(start: Optional[date]) -> (date, date):
     monday = start - timedelta(days=(start.weekday()))
     sunday = monday + timedelta(days=6)
     return monday, sunday
+
+def week_cache_key(d: date) -> str:
+    monday, _ = week_bounds(d)
+    return make_key("agg-week", {"week_start": str(monday)})
 
 @router.get("/week", response_model=List[PlanEntry])
 def get_week(
@@ -55,6 +60,8 @@ def add_entry(
     entry.user_id = user_id
     session.add(entry)
     session.commit()
+    # invalida caché de esa semana
+    delete_key(session, user_id, week_cache_key(entry.plan_date))
     return entry
 
 @router.patch("/entries/{entry_id}", response_model=PlanEntry)
@@ -67,12 +74,16 @@ def patch_entry(
     ent = session.get(PlanEntry, entry_id)
     if not ent or ent.user_id != user_id:
         raise HTTPException(404, "Entrada no encontrada")
+    old_date = ent.plan_date
     allowed = {"plan_date", "meal", "title", "portions", "recipe", "appliances"}
     for k, v in patch.items():
         if k in allowed:
             setattr(ent, k, v)
     session.add(ent)
     session.commit()
+    # invalida semanas afectadas (antigua y nueva si cambió)
+    delete_key(session, user_id, week_cache_key(old_date))
+    delete_key(session, user_id, week_cache_key(ent.plan_date))
     return ent
 
 @router.delete("/entries/{entry_id}")
@@ -84,8 +95,10 @@ def delete_entry(
     ent = session.get(PlanEntry, entry_id)
     if not ent or ent.user_id != user_id:
         raise HTTPException(404, "Entrada no encontrada")
+    wd = ent.plan_date
     session.delete(ent)
     session.commit()
+    delete_key(session, user_id, week_cache_key(wd))
     return {"ok": True}
 
 # --------- Generación de semana ---------
@@ -153,5 +166,11 @@ async def generate_week(
     if req.persist and entries:
         session.add_all(entries)
         session.commit()
+        # invalida todas las semanas tocadas
+        touched: Set[str] = set()
+        for e in entries:
+            touched.add(week_cache_key(e.plan_date))
+        for k in touched:
+            delete_key(session, user_id, k)
 
     return entries

@@ -20,10 +20,13 @@ from .db import init_db
 from .routes.shopping import router as shopping_router
 from .routes.appliances import router as appliances_router
 from .routes.planner import router as planner_router
+from .routes.catalog import router as catalog_router
+from .middleware.rate_limit import RateLimitMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(default_response_class=ORJSONResponse, title="FullFoodApp API")
 
-# --- CORS desde .env ---
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_allow_origins.split(",")] if settings.cors_allow_origins != "*" else ["*"],
@@ -32,18 +35,24 @@ app.add_middleware(
     allow_headers=[h.strip() for h in settings.cors_allow_headers.split(",")] if settings.cors_allow_headers != "*" else ["*"],
 )
 
+# Rate limiting
+app.add_middleware(RateLimitMiddleware)
+
+# ⚠️ Instrumentación Prometheus: añadir middleware/endpoint ANTES del startup
+instrumentator = Instrumentator().instrument(app)
+instrumentator.expose(app, include_in_schema=False, endpoint="/metrics")
+
 @app.on_event("startup")
 async def startup():
-    # DB local
     init_db()
-    # Qdrant (vectores con nombre, dims desde .env)
     vector_dims = settings.parsed_vector_dims()
     await ensure_collection(vector_dims)
 
-# Routers de features
+# Routers
 app.include_router(shopping_router)
 app.include_router(appliances_router)
 app.include_router(planner_router)
+app.include_router(catalog_router)
 
 @app.get("/health")
 async def health():

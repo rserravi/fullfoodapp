@@ -6,8 +6,12 @@ from ..db import get_session
 from ..models_db import ShoppingItem, PlanEntry
 from ..schemas import RecipePlan, RecipeNeutral, AggregatedItem
 from ..services.ingredients import extract_ingredients
-from ..services.quantify import extract_and_aggregate  # <---
+from ..services.quantify import extract_and_aggregate
+from ..services.catalog import categorize_names
+from ..services.cache import make_key, get_payload, set_payload
 from ..security import get_current_user
+from ..services.cache import make_key, get_payload, set_payload
+
 
 router = APIRouter(tags=["shopping"])
 
@@ -16,17 +20,22 @@ def week_bounds(start: date):
     sunday = monday + timedelta(days=6)
     return monday, sunday
 
-@router.get("/shopping-list", response_model=List[ShoppingItem])
-def list_items(
+@router.get("/shopping-list/aggregate-week", response_model=List[AggregatedItem])
+async def aggregate_week(
+    start: date = Query(..., description="YYYY-MM-DD"),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
-    stmt = (
-        select(ShoppingItem)
-        .where(ShoppingItem.user_id == user_id)
-        .order_by(ShoppingItem.created_at.desc())
-    )
-    return session.exec(stmt).all()
+    monday, sunday = week_bounds(start)
+    # <<< clave estable por inicio de semana (lunes) >>>
+    cache_key = make_key("agg-week", {"week_start": str(monday)})
+
+    cached = get_payload(session, user_id, cache_key)
+    if cached is not None and isinstance(cached, list):
+        try:
+            return [AggregatedItem(**obj) for obj in cached]
+        except Exception:
+            pass
 
 @router.post("/shopping-list/items", response_model=List[ShoppingItem])
 def add_items(
@@ -51,6 +60,40 @@ def add_items(
         session.commit()
         created.append(it)
     return created
+
+@router.post("/shopping-list/items-detailed", response_model=List[ShoppingItem])
+def add_items_detailed(
+    items: List[AggregatedItem] = Body(...),
+    session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user),
+):
+    out: List[ShoppingItem] = []
+    for a in items:
+        name = " ".join(a.name.strip().lower().split())
+        existing = session.exec(
+            select(ShoppingItem).where(
+                ShoppingItem.user_id == user_id, ShoppingItem.name == name
+            )
+        ).first()
+        if not existing:
+            it = ShoppingItem(
+                user_id=user_id, name=name, qty=a.qty, unit=a.unit, category=a.category
+            )
+            session.add(it)
+            session.commit()
+            out.append(it)
+        else:
+            if existing.qty is not None and a.qty is not None and (existing.unit == a.unit):
+                existing.qty = (existing.qty or 0) + a.qty
+            else:
+                existing.qty = a.qty if a.qty is not None else existing.qty
+                existing.unit = a.unit if a.unit is not None else existing.unit
+            if a.category:
+                existing.category = a.category
+            session.add(existing)
+            session.commit()
+            out.append(existing)
+    return out
 
 @router.post("/shopping-list/from-recipe", response_model=List[ShoppingItem])
 def add_from_recipe(
@@ -114,13 +157,22 @@ def clear_items(
     session.commit()
     return {"ok": True, "deleted": len(rows)}
 
-# -------- Agregado semanal (con cantidades/unidades) --------
+# -------- Agregado semanal (con cache 12h) --------
 @router.get("/shopping-list/aggregate-week", response_model=List[AggregatedItem])
 async def aggregate_week(
     start: date = Query(..., description="YYYY-MM-DD"),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
+    # Cache lookup
+    cache_key = make_key("agg-week", {"start": str(start)})
+    cached = get_payload(session, user_id, cache_key)
+    if cached is not None and isinstance(cached, list):
+        try:
+            return [AggregatedItem(**obj) for obj in cached]
+        except Exception:
+            pass  # si hay algo raro, recalculamos
+
     monday, sunday = week_bounds(start)
     plans = session.exec(
         select(PlanEntry)
@@ -131,8 +183,7 @@ async def aggregate_week(
         )
     ).all()
 
-    aggregated: Dict[str, AggregatedItem] = {}
-
+    aggregated: List[AggregatedItem] = []
     for p in plans:
         if not p.recipe:
             continue
@@ -140,23 +191,34 @@ async def aggregate_week(
             recipe = RecipeNeutral(**p.recipe)
         except Exception:
             continue
-        # LLM extraction + normalización + suma
-        items = await extract_and_aggregate(recipe)
-        for it in items:
-            key = (it.name, it.unit or "ud")
-            if key not in aggregated:
-                aggregated[key] = AggregatedItem(name=it.name, qty=it.qty, unit=it.unit)
-            else:
-                if it.qty is not None and aggregated[key].qty is not None:
-                    aggregated[key].qty = (aggregated[key].qty or 0) + it.qty
-                elif it.qty is not None and aggregated[key].qty is None:
-                    aggregated[key].qty = it.qty  # adopta qty si antes era None
-                else:
-                    # ambos None → lo dejamos como None (o podríamos contar uds)
-                    pass
+        items = await extract_and_aggregate(recipe, session, user_id)
+        aggregated.extend(items)
 
-    # Ordena por nombre y familia de unidad
-    return sorted(aggregated.values(), key=lambda x: (x.name, x.unit or "zzz"))
+    # Merge final por (name, unit)
+    merged: Dict[tuple, AggregatedItem] = {}
+    for a in aggregated:
+        key = (a.name, a.unit or "ud")
+        if key not in merged:
+            merged[key] = AggregatedItem(name=a.name, qty=a.qty, unit=a.unit, category=None)
+        else:
+            if a.qty is not None and merged[key].qty is not None:
+                merged[key].qty = (merged[key].qty or 0) + a.qty
+            elif a.qty is not None and merged[key].qty is None:
+                merged[key].qty = a.qty
+
+    result = list(merged.values())
+
+    # Categorizar
+    cat_map = categorize_names(session, user_id, [it.name for it in result])
+    for it in result:
+        it.category = cat_map.get(it.name, None)
+
+    # Orden amigable
+    result.sort(key=lambda x: ((x.category or "zzzz"), x.name))
+
+   # Guardar en cache 12h
+    set_payload(session, user_id, cache_key, [r.model_dump() for r in result], ttl_seconds=12*3600)
+    return result
 
 @router.post("/shopping-list/build-from-week", response_model=List[ShoppingItem])
 async def build_from_week(
@@ -165,5 +227,4 @@ async def build_from_week(
     user_id: str = Depends(get_current_user),
 ):
     aggr = await aggregate_week(start=start, session=session, user_id=user_id)
-    names = [a.name for a in aggr]
-    return add_items(items=names, session=session, user_id=user_id)
+    return add_items_detailed(items=aggr, session=session, user_id=user_id)

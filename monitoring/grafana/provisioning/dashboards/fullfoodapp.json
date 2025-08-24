@@ -1,0 +1,38 @@
+{
+  "annotations":{"list":[{"builtIn":1,"datasource":{"type":"grafana","uid":"-- Grafana --"},"enable":true,"hide":false,"iconColor":"rgba(0, 211, 255, 1)","name":"Anotaciones y alertas","type":"dashboard"}]},
+  "editable":true,
+  "fiscalYearStartMonth":0,
+  "graphTooltip":0,
+  "id":null,
+  "links":[],
+  "liveNow":false,
+  "panels":[
+    {"type":"stat","title":"RPS total","gridPos":{"h":6,"w":6,"x":0,"y":0},"targets":[{"expr":"sum(rate(http_requests_total{job=\\\"$job\\\"}[5m]))","legendFormat":"rps","refId":"A"}],"options":{"reduceOptions":{"calcs":["mean"],"fields":"","values":false}}},
+    {"type":"timeseries","title":"RPS por endpoint (handler)","gridPos":{"h":6,"w":12,"x":6,"y":0},"targets":[{"expr":"sum by (handler) (rate(http_requests_total{job=\\\"$job\\\"}[5m]))","legendFormat":"{{handler}}","refId":"A"}]},
+    {"type":"timeseries","title":"Latencia p95 por endpoint","gridPos":{"h":6,"w":12,"x":0,"y":6},"targets":[{"expr":"histogram_quantile(0.95, sum by (le, handler) (rate(http_request_duration_seconds_bucket{job=\\\"$job\\\"}[5m])))","legendFormat":"p95 {{handler}}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"s"},"overrides":[]}},
+    {"type":"gauge","title":"Error rate (5xx) %","gridPos":{"h":6,"w":6,"x":12,"y":6},"targets":[{"expr":"100 * (sum(rate(http_requests_total{job=\\\"$job\\\",status=~\\\"5..\\\"}[5m])) / sum(rate(http_requests_total{job=\\\"$job\\\"}[5m])))","legendFormat":"error %","refId":"A"}],"fieldConfig":{"defaults":{"unit":"percent","min":0,"max":100,"thresholds":{"mode":"absolute","steps":[{"color":"green"},{"color":"yellow","value":1},{"color":"red","value":5}]}},"overrides":[]}},
+    {"type":"timeseries","title":"2xx / 4xx / 5xx por segundo","gridPos":{"h":6,"w":12,"x":0,"y":12},"targets":[
+      {"expr":"sum(rate(http_requests_total{job=\\\"$job\\\",status=~\\\"2..\\\"}[5m]))","legendFormat":"2xx","refId":"A"},
+      {"expr":"sum(rate(http_requests_total{job=\\\"$job\\\",status=~\\\"4..\\\"}[5m]))","legendFormat":"4xx","refId":"B"},
+      {"expr":"sum(rate(http_requests_total{job=\\\"$job\\\",status=~\\\"5..\\\"}[5m]))","legendFormat":"5xx","refId":"C"}]},
+    {"type":"timeseries","title":"429 (Rate limit) por segundo","gridPos":{"h":6,"w":6,"x":12,"y":12},"targets":[{"expr":"sum(rate(http_requests_total{job=\\\"$job\\\",status=\\\"429\\\"}[5m])) by (handler)","legendFormat":"{{handler}}","refId":"A"}]},
+    {"type":"timeseries","title":"LLM: peticiones por resultado","description":"Requiere llm_requests_total{model,outcome}","gridPos":{"h":6,"w":12,"x":0,"y":18},"targets":[{"expr":"sum by (model, outcome) (rate(llm_requests_total{job=\\\"$job\\\"}[5m]))","legendFormat":"{{model}} {{outcome}}","refId":"A"}]},
+    {"type":"timeseries","title":"LLM: latencia p95 por modelo","description":"Requiere llm_latency_seconds","gridPos":{"h":6,"w":12,"x":12,"y":18},"targets":[{"expr":"histogram_quantile(0.95, sum by (le, model) (rate(llm_latency_seconds_bucket{job=\\\"$job\\\"}[5m])))","legendFormat":"p95 {{model}}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"s"},"overrides":[]}},
+    {"type":"timeseries","title":"RAG: queries por segundo","description":"Requiere rag_queries_total{kind}","gridPos":{"h":6,"w":12,"x":0,"y":24},"targets":[{"expr":"sum by (kind) (rate(rag_queries_total{job=\\\"$job\\\"}[5m]))","legendFormat":"{{kind}}","refId":"A"}]},
+    {"type":"timeseries","title":"RAG: latencia p95","description":"Requiere rag_query_seconds","gridPos":{"h":6,"w":12,"x":12,"y":24},"targets":[{"expr":"histogram_quantile(0.95, sum by (le, kind) (rate(rag_query_seconds_bucket{job=\\\"$job\\\"}[5m])))","legendFormat":"p95 {{kind}}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"s"},"overrides":[]}}
+  ],
+  "refresh":"10s",
+  "schemaVersion":39,
+  "style":"dark",
+  "tags":["fullfoodapp","backend"],
+  "templating":{"list":[
+    {"name":"datasource","type":"datasource","query":"prometheus","label":"Datasource","hide":0},
+    {"name":"job","type":"query","datasource":"${datasource}","label":"Prom job","query":"label_values(http_requests_total, job)","current":{"selected":true,"text":"fullfoodapp_api","value":"fullfoodapp_api"},"refresh":2,"includeAll":false,"multi":false}
+  ]},
+  "time":{"from":"now-1h","to":"now"},
+  "timepicker":{},
+  "timezone":"",
+  "title":"FullFoodApp Backend",
+  "version":1,
+  "weekStart":""
+}
