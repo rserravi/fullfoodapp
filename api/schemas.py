@@ -90,7 +90,12 @@ class RecipePlan(BaseModel):
     recipe: RecipeNeutral
     plans: List[CompiledPlan]
 
-# === Agregado semanal ===
+# === Ingredientes (extracción / agregado) ===
+class IngredientItem(BaseModel):
+    name: str
+    qty: Optional[float] = None
+    unit: Optional[str] = None  # "g" | "ml" | "ud" | None
+
 class AggregatedItem(BaseModel):
     name: str
     qty: Optional[float] = None

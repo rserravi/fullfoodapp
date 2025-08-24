@@ -6,17 +6,16 @@ from ..db import get_session
 from ..models_db import ShoppingItem, PlanEntry
 from ..schemas import RecipePlan, RecipeNeutral, AggregatedItem
 from ..services.ingredients import extract_ingredients
+from ..services.quantify import extract_and_aggregate  # <---
 from ..security import get_current_user
 
 router = APIRouter(tags=["shopping"])
 
-# -------- Helpers de fechas --------
 def week_bounds(start: date):
     monday = start - timedelta(days=start.weekday())
     sunday = monday + timedelta(days=6)
     return monday, sunday
 
-# -------- CRUD base --------
 @router.get("/shopping-list", response_model=List[ShoppingItem])
 def list_items(
     session: Session = Depends(get_session),
@@ -115,9 +114,9 @@ def clear_items(
     session.commit()
     return {"ok": True, "deleted": len(rows)}
 
-# -------- Agregado semanal --------
+# -------- Agregado semanal (con cantidades/unidades) --------
 @router.get("/shopping-list/aggregate-week", response_model=List[AggregatedItem])
-def aggregate_week(
+async def aggregate_week(
     start: date = Query(..., description="YYYY-MM-DD"),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
@@ -131,25 +130,40 @@ def aggregate_week(
             PlanEntry.plan_date <= sunday,
         )
     ).all()
-    counts: Dict[str, int] = {}
+
+    aggregated: Dict[str, AggregatedItem] = {}
+
     for p in plans:
         if not p.recipe:
             continue
         try:
-            # recipe ya es dict con steps_generic
-            ingredients = extract_ingredients(RecipeNeutral(**p.recipe))
+            recipe = RecipeNeutral(**p.recipe)
         except Exception:
             continue
-        for name in ingredients:
-            counts[name] = counts.get(name, 0) + 1
-    return [AggregatedItem(name=k, qty=v, unit=None) for k, v in sorted(counts.items())]
+        # LLM extraction + normalización + suma
+        items = await extract_and_aggregate(recipe)
+        for it in items:
+            key = (it.name, it.unit or "ud")
+            if key not in aggregated:
+                aggregated[key] = AggregatedItem(name=it.name, qty=it.qty, unit=it.unit)
+            else:
+                if it.qty is not None and aggregated[key].qty is not None:
+                    aggregated[key].qty = (aggregated[key].qty or 0) + it.qty
+                elif it.qty is not None and aggregated[key].qty is None:
+                    aggregated[key].qty = it.qty  # adopta qty si antes era None
+                else:
+                    # ambos None → lo dejamos como None (o podríamos contar uds)
+                    pass
+
+    # Ordena por nombre y familia de unidad
+    return sorted(aggregated.values(), key=lambda x: (x.name, x.unit or "zzz"))
 
 @router.post("/shopping-list/build-from-week", response_model=List[ShoppingItem])
-def build_from_week(
+async def build_from_week(
     start: date = Query(..., description="YYYY-MM-DD"),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
-    aggr = aggregate_week(start=start, session=session, user_id=user_id)
+    aggr = await aggregate_week(start=start, session=session, user_id=user_id)
     names = [a.name for a in aggr]
     return add_items(items=names, session=session, user_id=user_id)
