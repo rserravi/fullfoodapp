@@ -15,6 +15,7 @@ from ..rag import hybrid_retrieve, build_context
 from ..llm import generate_json
 from ..compiler.compiler import compile_recipe
 from ..utils.json_repair import repair_json_minimal, repair_via_llm
+from ..security import get_current_user
 
 router = APIRouter(prefix="/planner", tags=["planner"])
 
@@ -31,11 +32,16 @@ def week_bounds(start: Optional[date]) -> (date, date):
 def get_week(
     start: Optional[date] = Query(default=None, description="Fecha de referencia (YYYY-MM-DD)"),
     session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user),
 ):
     monday, sunday = week_bounds(start)
     stmt = (
         select(PlanEntry)
-        .where(PlanEntry.plan_date >= monday, PlanEntry.plan_date <= sunday)
+        .where(
+            PlanEntry.user_id == user_id,
+            PlanEntry.plan_date >= monday,
+            PlanEntry.plan_date <= sunday,
+        )
         .order_by(PlanEntry.plan_date.asc())
     )
     return session.exec(stmt).all()
@@ -44,10 +50,11 @@ def get_week(
 def add_entry(
     entry: PlanEntry,
     session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user),
 ):
+    entry.user_id = user_id
     session.add(entry)
     session.commit()
-    # expire_on_commit=False evita tener que refresh
     return entry
 
 @router.patch("/entries/{entry_id}", response_model=PlanEntry)
@@ -55,9 +62,10 @@ def patch_entry(
     entry_id: str,
     patch: Dict = Body(...),
     session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user),
 ):
     ent = session.get(PlanEntry, entry_id)
-    if not ent:
+    if not ent or ent.user_id != user_id:
         raise HTTPException(404, "Entrada no encontrada")
     allowed = {"plan_date", "meal", "title", "portions", "recipe", "appliances"}
     for k, v in patch.items():
@@ -68,15 +76,19 @@ def patch_entry(
     return ent
 
 @router.delete("/entries/{entry_id}")
-def delete_entry(entry_id: str, session: Session = Depends(get_session)):
+def delete_entry(
+    entry_id: str,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user),
+):
     ent = session.get(PlanEntry, entry_id)
-    if not ent:
+    if not ent or ent.user_id != user_id:
         raise HTTPException(404, "Entrada no encontrada")
     session.delete(ent)
     session.commit()
     return {"ok": True}
 
-# --------- Generación de semana (simple) ---------
+# --------- Generación de semana ---------
 
 class WeekGenRequest(RecipeGenRequest):
     start_date: date
@@ -116,7 +128,11 @@ async def _generate_recipe_neutral(ingredients: List[str], portions: int, dietar
     return RecipeNeutral(**data)
 
 @router.post("/generate-week", response_model=List[PlanEntry])
-async def generate_week(req: WeekGenRequest, session: Session = Depends(get_session)):
+async def generate_week(
+    req: WeekGenRequest,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user),
+):
     monday, _ = week_bounds(req.start_date)
     entries: List[PlanEntry] = []
     for day_idx in range(req.days):
@@ -124,6 +140,7 @@ async def generate_week(req: WeekGenRequest, session: Session = Depends(get_sess
         for meal in req.meals:
             recipe = await _generate_recipe_neutral(req.ingredients, req.portions, req.dietary)
             plan = PlanEntry(
+                user_id=user_id,
                 plan_date=current,
                 meal=meal,
                 title=recipe.title,
@@ -134,7 +151,6 @@ async def generate_week(req: WeekGenRequest, session: Session = Depends(get_sess
             entries.append(plan)
 
     if req.persist and entries:
-        # Un único commit al final, sin expirar atributos (ver db.get_session)
         session.add_all(entries)
         session.commit()
 

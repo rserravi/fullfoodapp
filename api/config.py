@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # DB local (SQLite file)
     db_url: str = "sqlite:///./fullfood.db"
 
+    # Auth / multiusuario
+    # Formato: "user1:key1,user2:key2"
+    api_keys: str = "default:demo123"
+    # Si no viene cabecera, usar este usuario (para desarrollo local). Pon vacío para deshabilitar.
+    auth_fallback_user: Optional[str] = "default"
+
     def parsed_embedding_models(self) -> list[str]:
         return [m.strip() for m in self.embedding_models.split(",") if m.strip()]
 
@@ -40,5 +46,17 @@ class Settings(BaseSettings):
             k, v = pair.split(":")
             out[k.strip()] = int(v)
         return out
+
+    def parsed_api_keys(self) -> Dict[str, str]:
+        """
+        Devuelve dict token->user_id a partir de API_KEYS "user:key,user2:key2".
+        """
+        mapping: Dict[str, str] = {}
+        for pair in [p.strip() for p in self.api_keys.split(",") if p.strip()]:
+            if ":" not in pair:
+                continue
+            user, token = pair.split(":", 1)
+            mapping[token.strip()] = user.strip()
+        return mapping
 
 settings = Settings()

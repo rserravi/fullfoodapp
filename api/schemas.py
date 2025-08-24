@@ -48,11 +48,6 @@ class StepGeneric(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize(cls, data: Any):
-        """
-        Normaliza entradas típicas del LLM:
-        - time_min <= 0 -> None (sin duración)
-        - temperature_c fuera de 0..300 -> None
-        """
         if isinstance(data, dict):
             v = data.get("time_min", None)
             if isinstance(v, (int, float)) and v <= 0:
@@ -65,9 +60,7 @@ class StepGeneric(BaseModel):
     @field_validator("time_min")
     @classmethod
     def _time_non_negative(cls, v):
-        # Permitimos None o >0; si viniera 0 ya fue normalizado a None
         if v is not None and v <= 0:
-            # fallback defensivo (debería quedar cubierto por _normalize)
             return None
         return v
 
@@ -75,7 +68,6 @@ class StepGeneric(BaseModel):
     @classmethod
     def _temp_reasonable(cls, v):
         if v is not None and not (0 <= v <= 300):
-            # fallback defensivo (debería quedar cubierto por _normalize)
             return None
         return v
 
@@ -97,3 +89,9 @@ class CompiledPlan(BaseModel):
 class RecipePlan(BaseModel):
     recipe: RecipeNeutral
     plans: List[CompiledPlan]
+
+# === Agregado semanal ===
+class AggregatedItem(BaseModel):
+    name: str
+    qty: Optional[float] = None
+    unit: Optional[str] = None
