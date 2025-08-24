@@ -4,13 +4,19 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models_db import Appliance
 from ..security import get_current_user
+from ..errors import ErrorResponse
 
 router = APIRouter(prefix="/appliances", tags=["appliances"])
 
-@router.get("", response_model=List[Appliance])
+@router.get(
+    "",
+    response_model=List[Appliance],
+    summary="Listar electrodomésticos",
+    responses={400: {"model": ErrorResponse}},
+)
 def list_appliances(
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500, example=100),
+    offset: int = Query(0, ge=0, example=0),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
@@ -21,9 +27,16 @@ def list_appliances(
         .offset(offset).limit(limit)
     ).all()
 
-@router.post("", response_model=Appliance)
+@router.post(
+    "",
+    response_model=Appliance,
+    summary="Crear electrodoméstico",
+    responses={400: {"model": ErrorResponse}},
+)
 def create_appliance(
-    appliance: Appliance,
+    appliance: Appliance = Body(..., examples={
+        "mambo": {"summary":"Cecotec Mambo","value":{"name":"Mambo Touch","brand":"Cecotec","kind":"robot_cocina","power_w":1700}}
+    }),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
@@ -31,7 +44,12 @@ def create_appliance(
     session.add(appliance); session.commit()
     return appliance
 
-@router.get("/{appliance_id}", response_model=Appliance)
+@router.get(
+    "/{appliance_id}",
+    response_model=Appliance,
+    summary="Obtener electrodoméstico",
+    responses={404: {"model": ErrorResponse}},
+)
 def get_appliance(
     appliance_id: str,
     session: Session = Depends(get_session),
@@ -42,10 +60,17 @@ def get_appliance(
         raise HTTPException(404, "Electrodoméstico no encontrado")
     return ap
 
-@router.patch("/{appliance_id}", response_model=Appliance)
+@router.patch(
+    "/{appliance_id}",
+    response_model=Appliance,
+    summary="Actualizar electrodoméstico",
+    responses={404: {"model": ErrorResponse}},
+)
 def update_appliance(
     appliance_id: str,
-    patch: Dict = Body(...),
+    patch: Dict = Body(..., examples={
+        "upd": {"summary":"Cambio de nombre","value":{"name":"Mambo Touch 2"}}
+    }),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
@@ -59,7 +84,11 @@ def update_appliance(
     session.add(ap); session.commit()
     return ap
 
-@router.delete("/{appliance_id}")
+@router.delete(
+    "/{appliance_id}",
+    summary="Borrar electrodoméstico",
+    responses={404: {"model": ErrorResponse}},
+)
 def delete_appliance(
     appliance_id: str,
     session: Session = Depends(get_session),

@@ -1,85 +1,82 @@
-from typing import List, Dict, Optional
+from typing import List, Dict
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlmodel import Session, select
 from ..db import get_session
 from ..models_db import Product
 from ..security import get_current_user
-from ..services.catalog import BASE_CATEGORIES, categorize_names
+from ..errors import ErrorResponse
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
-@router.get("/categories", response_model=List[str])
-def list_categories():
-    return BASE_CATEGORIES
-
-@router.get("/products", response_model=List[Product])
+@router.get(
+    "/products",
+    response_model=List[Product],
+    summary="Listar productos (catálogo del usuario)",
+    responses={400: {"model": ErrorResponse}},
+)
 def list_products(
-    include_global: bool = Query(True),
+    limit: int = Query(200, ge=1, le=1000, example=200),
+    offset: int = Query(0, ge=0, example=0),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
-    stmt = select(Product)
-    if include_global:
-        stmt = stmt.where((Product.user_id == user_id) | (Product.is_global == True))
-    else:
-        stmt = stmt.where(Product.user_id == user_id)
-    return session.exec(stmt.order_by(Product.created_at.desc())).all()
+    return session.exec(
+        select(Product)
+        .where(Product.user_id == user_id)
+        .order_by(Product.category, Product.name)
+        .offset(offset).limit(limit)
+    ).all()
 
-@router.post("/products", response_model=Product)
+@router.post(
+    "/products",
+    response_model=Product,
+    summary="Crear producto en catálogo",
+)
 def create_product(
-    product: Product,
+    prod: Product = Body(..., examples={
+        "aceite": {"summary":"Producto con sinónimos","value":{"name":"aceite de oliva","category":"aceites/vinagres","synonyms":["aceite","AOVE"]}}
+    }),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
-    product.user_id = user_id if not product.is_global else product.user_id
-    # normaliza nombre
-    product.name = " ".join(product.name.strip().lower().split())
-    session.add(product)
-    session.commit()
-    return product
+    prod.user_id = user_id
+    session.add(prod); session.commit()
+    return prod
 
-@router.patch("/products/{product_id}", response_model=Product)
-def patch_product(
+@router.patch(
+    "/products/{product_id}",
+    response_model=Product,
+    summary="Actualizar producto",
+    responses={404: {"model": ErrorResponse}},
+)
+def update_product(
     product_id: str,
     patch: Dict = Body(...),
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
-    prod = session.get(Product, product_id)
-    if not prod:
+    p = session.get(Product, product_id)
+    if not p or p.user_id != user_id:
         raise HTTPException(404, "Producto no encontrado")
-    # sólo dueño (o si es global, de momento no permitimos editar salvo que coincida user)
-    if prod.user_id != user_id:
-        raise HTTPException(403, "No autorizado")
     allowed = {"name", "category", "synonyms", "is_global"}
     for k, v in patch.items():
         if k in allowed:
-            if k == "name" and isinstance(v, str):
-                v = " ".join(v.strip().lower().split())
-            setattr(prod, k, v)
-    session.add(prod)
-    session.commit()
-    return prod
+            setattr(p, k, v)
+    session.add(p); session.commit()
+    return p
 
-@router.delete("/products/{product_id}")
+@router.delete(
+    "/products/{product_id}",
+    summary="Borrar producto",
+    responses={404: {"model": ErrorResponse}},
+)
 def delete_product(
     product_id: str,
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
 ):
-    prod = session.get(Product, product_id)
-    if not prod:
+    p = session.get(Product, product_id)
+    if not p or p.user_id != user_id:
         raise HTTPException(404, "Producto no encontrado")
-    if prod.user_id != user_id:
-        raise HTTPException(403, "No autorizado")
-    session.delete(prod)
-    session.commit()
+    session.delete(p); session.commit()
     return {"ok": True}
-
-@router.post("/categorize", response_model=Dict[str, str])
-def categorize_endpoint(
-    names: List[str] = Body(...),
-    session: Session = Depends(get_session),
-    user_id: str = Depends(get_current_user),
-):
-    return categorize_names(session, user_id, names)

@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+import time
+import httpx
 
 from .config import settings
 from .db import init_db
@@ -11,11 +13,14 @@ from .routes.appliances import router as appliances_router
 from .routes.planner import router as planner_router
 from .routes.catalog import router as catalog_router
 from .routes.admin import router as admin_router
+from .routes.auth import router as auth_router
 from .middleware.rate_limit import RateLimitMiddleware
+from .middleware.size_limit import SizeLimitMiddleware
 from .errors import install_exception_handlers
 from prometheus_fastapi_instrumentator import Instrumentator
 
 TAGS_METADATA = [
+    {"name": "auth", "description": "Autenticación JWT (modo dev con PIN)."},
     {"name": "planner", "description": "Planificación semanal de comidas y exportación iCal."},
     {"name": "shopping", "description": "Lista de la compra: agregado por semana, CRUD y exportación CSV."},
     {"name": "appliances", "description": "Gestión de electrodomésticos del usuario."},
@@ -25,7 +30,7 @@ TAGS_METADATA = [
 
 app = FastAPI(
     title="FullFoodApp API",
-    version="0.1.0",
+    version="0.2.0",
     description="Backend de FullFoodApp (MVP). RAG local con Qdrant + Ollama, planificador semanal y lista de la compra.",
     default_response_class=ORJSONResponse,
     openapi_tags=TAGS_METADATA,
@@ -42,14 +47,15 @@ app.add_middleware(
     allow_headers=[h.strip() for h in settings.cors_allow_headers.split(",")] if settings.cors_allow_headers != "*" else ["*"],
 )
 
-# Rate limiting
-app.add_middleware(RateLimitMiddleware)
+# Middlewares
+app.add_middleware(SizeLimitMiddleware)     # 413 si Content-Length excede
+app.add_middleware(RateLimitMiddleware)     # 429 si exceso RPM
 
 # Prometheus
 instrumentator = Instrumentator().instrument(app)
 instrumentator.expose(app, include_in_schema=False, endpoint="/metrics")
 
-# Exception handlers unificados
+# Exception handlers
 install_exception_handlers(app)
 
 @app.on_event("startup")
@@ -59,6 +65,7 @@ async def startup():
     await ensure_collection(vector_dims)
 
 # Routers
+app.include_router(auth_router)
 app.include_router(shopping_router)
 app.include_router(appliances_router)
 app.include_router(planner_router)
@@ -69,7 +76,38 @@ app.include_router(admin_router)
 async def health():
     return {"status": "ok", "qdrant": settings.qdrant_url, "llm": settings.llm_model}
 
-# --- Inserta 'servers' en OpenAPI ---
+@app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (Qdrant + Ollama)")
+async def health_deep():
+    out = {"status": "ok", "checks": {}}
+
+    # Qdrant
+    t0 = time.perf_counter()
+    q_ok, q_err = True, None
+    try:
+        async with httpx.AsyncClient(timeout=3) as c:
+            r = await c.get(settings.qdrant_url.rstrip("/") + "/collections")
+            r.raise_for_status()
+    except Exception as e:
+        q_ok, q_err = False, str(e)
+        out["status"] = "degraded"
+    out["checks"]["qdrant"] = {"ok": q_ok, "latency_ms": round((time.perf_counter()-t0)*1000, 1), "error": q_err}
+
+    # Ollama
+    t1 = time.perf_counter()
+    o_ok, o_err = True, None
+    try:
+        async with httpx.AsyncClient(timeout=3) as c:
+            r = await c.get(settings.ollama_url.rstrip("/") + "/api/tags")
+            r.raise_for_status()
+    except Exception as e:
+        o_ok, o_err = False, str(e)
+        out["status"] = "degraded"
+    out["checks"]["ollama"] = {"ok": o_ok, "latency_ms": round((time.perf_counter()-t1)*1000, 1), "error": o_err}
+
+    return out
+
+# --- OpenAPI servers ---
+from fastapi.openapi.utils import get_openapi
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -83,5 +121,4 @@ def custom_openapi():
     schema["servers"] = [{"url": settings.server_public_url, "description": f"{settings.service_env}"}]
     app.openapi_schema = schema
     return app.openapi_schema
-
-app.openapi = custom_openapi  # type: ignore[assignment]
+app.openapi = custom_openapi  # type: ignore

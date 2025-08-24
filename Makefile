@@ -125,3 +125,24 @@ test-integration: venv qdrant-up
 	PYTHONPATH=. $(PY) -m api.ingest
 	# Ejecuta solo los tests integration (requiere Qdrant y Ollama)
 	PYTHONPATH=. $(PYTEST) -m "integration" -q
+
+.PHONY: db-upgrade db-downgrade openapi seed-dev seed-rag test-e2e
+
+db-upgrade:
+	. .venv/bin/activate && alembic upgrade head
+
+db-downgrade:
+	. .venv/bin/activate && alembic downgrade -1
+
+openapi:
+	PYTHONPATH=. .venv/bin/python tools/export_openapi.py
+
+seed-dev:
+	curl -s -X POST http://127.0.0.1:8000/admin/seed-catalog -H 'X-API-Key: demo123' | jq
+
+seed-rag:
+	curl -s -X POST http://127.0.0.1:8000/admin/seed-rag -H 'X-API-Key: demo123' | jq
+
+test-e2e:
+	PYTHONPATH=. .venv/bin/pytest tests/test_e2e_mvp.py -q
+

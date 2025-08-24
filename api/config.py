@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     # Core
     log_level: str = "INFO"
     service_env: str = "dev"  # dev|prod
-    server_public_url: str = "http://localhost:8000"  # usado en OpenAPI.servers
+    server_public_url: str = "http://localhost:8000"
 
     # Ollama / LLM
     ollama_url: str = "http://localhost:11434"
@@ -37,10 +37,16 @@ class Settings(BaseSettings):
     # Auth / multiusuario
     api_keys: str = "default:demo123"
     auth_fallback_user: Optional[str] = "default"
+    jwt_secret: str = "change-me-dev"
+    jwt_expire_minutes: int = 120
+    auth_dev_pin: str = "000000"
 
     # Rate limiting
     rate_limit_rpm: int = 60
     rate_limit_burst: int = 60
+
+    # Size limit
+    max_body_bytes: int = 262144  # 256KB
 
     def parsed_embedding_models(self) -> list[str]:
         return [m.strip() for m in self.embedding_models.split(",") if m.strip()]
