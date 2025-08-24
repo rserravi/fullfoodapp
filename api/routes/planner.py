@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
+from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -58,9 +59,7 @@ def add_entry(
     user_id: str = Depends(get_current_user),
 ):
     entry.user_id = user_id
-    session.add(entry)
-    session.commit()
-    # invalida caché de esa semana
+    session.add(entry); session.commit()
     delete_key(session, user_id, week_cache_key(entry.plan_date))
     return entry
 
@@ -79,9 +78,7 @@ def patch_entry(
     for k, v in patch.items():
         if k in allowed:
             setattr(ent, k, v)
-    session.add(ent)
-    session.commit()
-    # invalida semanas afectadas (antigua y nueva si cambió)
+    session.add(ent); session.commit()
     delete_key(session, user_id, week_cache_key(old_date))
     delete_key(session, user_id, week_cache_key(ent.plan_date))
     return ent
@@ -96,13 +93,11 @@ def delete_entry(
     if not ent or ent.user_id != user_id:
         raise HTTPException(404, "Entrada no encontrada")
     wd = ent.plan_date
-    session.delete(ent)
-    session.commit()
+    session.delete(ent); session.commit()
     delete_key(session, user_id, week_cache_key(wd))
     return {"ok": True}
 
 # --------- Generación de semana ---------
-
 class WeekGenRequest(RecipeGenRequest):
     start_date: date
     days: int = 7
@@ -164,13 +159,51 @@ async def generate_week(
             entries.append(plan)
 
     if req.persist and entries:
-        session.add_all(entries)
-        session.commit()
-        # invalida todas las semanas tocadas
-        touched: Set[str] = set()
-        for e in entries:
-            touched.add(week_cache_key(e.plan_date))
-        for k in touched:
-            delete_key(session, user_id, k)
+        session.add_all(entries); session.commit()
+        touched: Set[str] = set(week_cache_key(e.plan_date) for e in entries)
+        for k in touched: delete_key(session, user_id, k)
 
     return entries
+
+# --------- Export iCalendar (.ics) de la semana ---------
+@router.get("/week.ics")
+def export_week_ics(
+    start: Optional[date] = Query(default=None, description="YYYY-MM-DD"),
+    session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user),
+):
+    monday, sunday = week_bounds(start)
+    rows = session.exec(
+        select(PlanEntry).where(
+            PlanEntry.user_id == user_id,
+            PlanEntry.plan_date >= monday,
+            PlanEntry.plan_date <= sunday,
+        ).order_by(PlanEntry.plan_date.asc())
+    ).all()
+
+    def ics_date(d: date) -> str:
+        return d.strftime("%Y%m%d")
+
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//FullFoodApp//Planner//ES",
+        "CALSCALE:GREGORIAN"
+    ]
+    for r in rows:
+        # Evento de día completo por simplicidad
+        dtstart = ics_date(r.plan_date)
+        dtend = ics_date(r.plan_date + timedelta(days=1))
+        summary = f"{r.meal.capitalize()}: {r.title or 'Sin título'}"
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{r.id}",
+            f"DTSTAMP:{ics_date(r.plan_date)}T000000Z",
+            f"DTSTART;VALUE=DATE:{dtstart}",
+            f"DTEND;VALUE=DATE:{dtend}",
+            f"SUMMARY:{summary}",
+            "END:VEVENT"
+        ]
+    lines.append("END:VCALENDAR")
+    ics = "\r\n".join(lines) + "\r\n"
+    return Response(content=ics, media_type="text/calendar")

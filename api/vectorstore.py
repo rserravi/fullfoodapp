@@ -1,77 +1,62 @@
+from __future__ import annotations
+from typing import List, Dict, Any, Tuple
+from uuid import uuid4
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from qdrant_client import QdrantClient
-from qdrant_client.http import models as qmodels
-from typing import List, Dict, Any
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+import httpx
+
 from .config import settings
-import uuid
 
-client = QdrantClient(url=settings.qdrant_url)
+_client = QdrantClient(url=settings.qdrant_url, timeout=settings.rag_timeout_s)
 
-def model_to_vector_key(model: str) -> str:
-    """Normaliza nombre de modelo → clave de vector definida en .env (mxbai/jina)."""
-    m = model.lower()
-    if "mxbai" in m:
-        return "mxbai"
-    if "jina-embeddings-v2-base-es" in m:
-        return "jina"
-    return m.split("/")[-1].split(":")[0]
+def _vec_cfg() -> Dict[str, VectorParams]:
+    cfg: Dict[str, VectorParams] = {}
+    for name, dim in settings.parsed_vector_dims().items():
+        cfg[name] = VectorParams(size=dim, distance=Distance.COSINE)
+    return cfg
 
-def to_point_id(orig_id: Any) -> Any:
-    """Convierte un id arbitrario a entero o UUID (string) aceptado por Qdrant."""
-    if orig_id is None:
-        return str(uuid.uuid4())
-    # ¿Es un entero?
-    try:
-        return int(orig_id)
-    except Exception:
-        pass
-    # ¿Es un UUID válido?
-    try:
-        return str(uuid.UUID(str(orig_id)))
-    except Exception:
-        # UUID determinista basado en el id original (estable entre ingestas)
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"fullfoodapp:{orig_id}"))
-
-# Crea/recrea la colección con vectores nombrados según .env
+@retry(reraise=True, stop=stop_after_attempt(3), wait=wait_exponential(min=0.2, max=2), retry=retry_if_exception_type(Exception))
 async def ensure_collection(vector_dims: Dict[str, int]):
-    vectors_config = {
-        name: qmodels.VectorParams(size=dim, distance=qmodels.Distance.COSINE)
-        for name, dim in vector_dims.items()
-    }
-    try:
-        client.get_collection(settings.collection_name)
-    except Exception:
-        client.recreate_collection(
-            collection_name=settings.collection_name,
-            vectors_config=vectors_config,
+    name = settings.collection_name
+    exists = _client.collection_exists(name)
+    if not exists:
+        _client.recreate_collection(
+            collection_name=name,
+            vectors_config=_vec_cfg()
         )
 
-async def upsert_documents(texts: List[str], payloads: List[Dict], embeddings: Dict[str, List[List[float]]]):
-    points = []
+async def upsert_documents(texts: List[str], payloads: List[Dict[str, Any]], embeddings: Dict[str, List[List[float]]]):
+    points: List[PointStruct] = []
+    name_map = { "mxbai-embed-large": "mxbai", "jina/jina-embeddings-v2-base-es": "jina", "mxbai": "mxbai", "jina": "jina" }
     for i, text in enumerate(texts):
-        payload = dict(payloads[i])  # copia
-        orig_id = payload.pop("id", None)  # <- no usarlo como point-id directamente
-        if orig_id is not None:
-            payload["doc_id"] = orig_id
-
-        # Construye diccionario de vectores con claves normalizadas (mxbai/jina)
-        vec_dict: Dict[str, List[float]] = {}
-        for model_name, vecs in embeddings.items():
-            key = model_to_vector_key(model_name)
-            vec_dict[key] = vecs[i]
-
-        point = qmodels.PointStruct(
-            id=to_point_id(orig_id),
+        vec_dict: Dict[str, List[float]] = { name_map[k]: embeddings[k][i] for k in embeddings }
+        points.append(PointStruct(
+            id=str(uuid4()),
             vector=vec_dict,
-            payload={**payload, "text": text},
+            payload=payloads[i] | {"text": text}
+        ))
+    _client.upsert(collection_name=settings.collection_name, points=points)
+
+async def search(query_vecs: Dict[str, List[float]], top_k: int = 5, filters: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
+    """
+    Multi-vector search: hace una búsqueda por cada vector y fusiona resultados simples.
+    """
+    all_hits: List[Tuple[str, float, Dict[str, Any]]] = []
+    for vec_name, vec in query_vecs.items():
+        res = _client.search(
+            collection_name=settings.collection_name,
+            query_vector=(vec_name, vec),
+            limit=top_k,
         )
-        points.append(point)
-
-    client.upsert(settings.collection_name, points=points)
-
-async def search(query: str, query_vector: List[float], vector_name: str, top_k: int):
-    return client.search(
-        collection_name=settings.collection_name,
-        query_vector=(vector_name, query_vector),
-        limit=top_k,
-        with_payload=True,
-    )
+        for hit in res:
+            all_hits.append((hit.id, float(hit.score), hit.payload))
+    # ordenar por score desc y desduplicar por id
+    seen = set()
+    out: List[Dict[str, Any]] = []
+    for pid, score, payload in sorted(all_hits, key=lambda x: x[1], reverse=True):
+        if pid in seen:
+            continue
+        seen.add(pid)
+        out.append({"id": pid, "score": score, "payload": payload})
+    return out
