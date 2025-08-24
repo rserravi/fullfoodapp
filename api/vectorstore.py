@@ -6,7 +6,6 @@ import uuid
 
 client = QdrantClient(url=settings.qdrant_url)
 
-# Creamos la colección con vectores NAMED automáticamente según las dimensiones
 async def ensure_collection(vector_dims: Dict[str, int]):
     vectors_config = {name: qmodels.VectorParams(size=dim, distance=qmodels.Distance.COSINE)
                       for name, dim in vector_dims.items()}
@@ -19,8 +18,6 @@ async def ensure_collection(vector_dims: Dict[str, int]):
         )
 
 async def upsert_documents(texts: List[str], payloads: List[Dict], embeddings: Dict[str, List[List[float]]]):
-    # embeddings: { model_name: [[...], ...] }
-    # Mapear nombres a keys simples
     name_map = {
         "mxbai-embed-large": "mxbai",
         "jina-embeddings-v2-base-es": "jina"

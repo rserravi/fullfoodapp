@@ -14,12 +14,8 @@ services:
     container_name: fullfood-api
     depends_on:
       - qdrant
-    environment:
-      - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_URL=http://host.docker.internal:11434
-      - COLLECTION_NAME=recipes
-      - EMBEDDING_MODELS=mxbai-embed-large,jina-embeddings-v2-base-es
-      - LOG_LEVEL=INFO
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     volumes:

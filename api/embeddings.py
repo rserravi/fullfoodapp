@@ -2,23 +2,41 @@ import httpx
 from typing import List, Dict
 from .config import settings
 
-OLLAMA_EMBED_PATH = "/api/embeddings"
+ENDPOINTS = [
+    ("/api/embeddings", "prompt"),
+    ("/api/embeddings", "input"),
+    ("/api/embed", "input"),
+    ("/api/embed", "prompt"),
+]
+
+def _variants(model: str):
+    yield model
+    if model.startswith("jina/"):
+        yield model.split("/", 1)[1]
+    elif "jina-embeddings-v2-base-es" in model:
+        yield f"jina/{model}"
 
 async def embed_single(text: str, model: str) -> List[float]:
-    async with httpx.AsyncClient(timeout=120) as client:
-        r = await client.post(
-            settings.ollama_url + OLLAMA_EMBED_PATH,
-            json={"model": model, "prompt": text}
-        )
-        r.raise_for_status()
-        data = r.json()
-        return data["embedding"]
+    timeout = settings.ollama_timeout_s
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for mdl in _variants(model):
+            for path, key in ENDPOINTS:
+                payload = {"model": mdl, key: text}
+                r = await client.post(settings.ollama_url + path, json=payload)
+                if r.status_code == 404:
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                if isinstance(data, dict):
+                    if "embedding" in data:
+                        return data["embedding"]
+                    if "embeddings" in data and data["embeddings"]:
+                        return data["embeddings"][0]
+        raise RuntimeError(f"No pude obtener embeddings. Revisa OLLAMA_URL y el nombre del modelo: {model}")
 
 async def embed_dual(texts: List[str], models: List[str]) -> Dict[str, List[List[float]]]:
-    # Devuelve embeddings para cada modelo
     out: Dict[str, List[List[float]]] = {}
     for m in models:
-        # Llamadas secuenciales para simplicidad; se puede paralelizar
         vecs = []
         for t in texts:
             vecs.append(await embed_single(t, m))

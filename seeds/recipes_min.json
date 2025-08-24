@@ -1,12 +1,4 @@
 [
-  {
-    "id": "r1",
-    "text": "Pesto clásico: albahaca, piñones, ajo, parmesano y aceite; triturar y mezclar con pasta caliente.",
-    "metadata": {"title": "Pesto clásico", "lang": "es", "tags": ["salsa","pasta"]}
-  },
-  {
-    "id": "r2",
-    "text": "Airy oven-roasted vegetables: toss zucchini and bell peppers with olive oil, salt, pepper; roast until edges brown.",
-    "metadata": {"title": "Roasted veg", "lang": "en", "tags": ["veggie","roast"]}
-  }
+  {"id":"r1","text":"Pesto clásico: albahaca, piñones, ajo, parmesano y aceite; triturar y mezclar con pasta caliente.","metadata":{"title":"Pesto clásico","lang":"es","tags":["salsa","pasta"]}},
+  {"id":"r2","text":"Airy oven-roasted vegetables: toss zucchini and bell peppers with olive oil, salt, pepper; roast until edges brown.","metadata":{"title":"Roasted veg","lang":"en","tags":["veggie","roast"]}}
 ]
