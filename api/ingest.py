@@ -1,20 +1,23 @@
 import asyncio, json
 from pathlib import Path
-from schemas import IngestRequest, Document
-from config import settings
-from embeddings import embed_dual, embed_single
-from vectorstore import ensure_collection, upsert_documents
+from api.schemas import Document
+from api.config import settings
+from api.embeddings import embed_dual
+from api.vectorstore import ensure_collection, upsert_documents
 
 async def main():
-    models = settings.embedding_models.split(',')
-    dims = {m: len(await embed_single("test", m)) for m in models}
-    name_map = {"mxbai-embed-large": "mxbai", "jina-embeddings-v2-base-es": "jina"}
-    vector_dims = { name_map[k]: v for k, v in dims.items() }
-    await ensure_collection(vector_dims)
-    data = json.loads(Path("../seeds/recipes_min.json").read_text())
+    # Asegura la colección con dims desde .env (sin tocar Ollama)
+    await ensure_collection(settings.parsed_vector_dims())
+
+    # Ruta robusta al seed JSON (independiente del cwd)
+    data_path = Path(__file__).resolve().parents[1] / "seeds" / "recipes_min.json"
+    data = json.loads(data_path.read_text(encoding="utf-8"))
+
     docs = [Document(**d) for d in data]
     texts = [d.text for d in docs]
     payloads = [{**d.metadata, **({"id": d.id} if d.id else {})} for d in docs]
+
+    models = settings.parsed_embedding_models()
     embs = await embed_dual(texts, models)
     await upsert_documents(texts, payloads, embs)
     print(f"Ingestados: {len(texts)} documentos")

@@ -8,18 +8,5 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_storage:/qdrant/storage
-
-  api:
-    build: ./api
-    container_name: fullfood-api
-    depends_on:
-      - qdrant
-    env_file:
-      - .env
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./api:/app
-
 volumes:
   qdrant_storage:

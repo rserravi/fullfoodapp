@@ -1,0 +1,51 @@
+PUESTA EN MARCHA
+
+# 1) Dependencias
+python -m venv .venv
+source .venv/bin/activate
+pip install -r api/requirements.txt
+
+# 2) Qdrant (Docker)
+docker compose up -d qdrant
+
+# 3) Arrancar API (local)
+PYTHONPATH=. python -m uvicorn api.main:app --reload
+# Salud:
+curl -s http://127.0.0.1:8000/health | jq
+
+
+INGESTA DE SEMILLAS
+PYTHONPATH=. python -m api.ingest
+
+Probar RAG → LLM → Compilación
+curl -s -X POST http://127.0.0.1:8000/recipes/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"ingredients":["calabacín","pimiento"],"appliances":["airfryer","horno"],"portions":2}' | jq
+
+DETALLES TECNICOS
+
+Vectores con nombre en Qdrant: mxbai (1024), jina (768) — definidos en VECTOR_DIMS.
+
+Embeddings: el cliente intenta /api/embeddings y /api/embed, y prueba con y sin prefijo jina/.
+
+RAG: consulta híbrida (mxbai+jina) + RRF, contexto compacto.
+
+LLM: format: "json" para garantizar salida parseable → validación con RecipeNeutral.
+
+Compilador: traduce steps_generic a pasos concretos por electrodoméstico.
+
+
+TROUBLESHOOTING
+
+Puerto en uso (8000):
+lsof -nP -iTCP:8000 -sTCP:LISTEN → kill <PID> o --port 8010.
+
+404 embeddings (Ollama):
+Verifica OLLAMA_URL y nombres exactos:
+curl -s http://localhost:11434/api/tags | jq
+Prueba directa:
+curl -s http://localhost:11434/api/embeddings -d '{ "model": "mxbai-embed-large", "prompt": "hola" }' | jq
+y
+curl -s http://localhost:11434/api/embeddings -d '{ "model": "jina/jina-embeddings-v2-base-es", "prompt": "hola" }' | jq
+
+IDs en Qdrant: se normalizan a UUID; el id original va en payload.doc_id.
