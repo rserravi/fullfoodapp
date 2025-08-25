@@ -1,0 +1,45 @@
+version: 1
+order:
+  - verduras
+  - frutas
+  - hortalizas
+  - legumbres
+  - cereales/pastas
+  - pan y harinas
+  - carnes
+  - pescados y mariscos
+  - huevos
+  - lácteos
+  - quesos
+  - aceites/vinagres
+  - especias/condimentos
+  - salsas
+  - frutos secos
+  - semillas
+  - enlatados
+  - congelados
+  - bebidas
+  - dulces/postres
+  - limpieza/hogar
+labels:
+  verduras: Verduras
+  frutas: Frutas
+  hortalizas: Hortalizas
+  legumbres: Legumbres
+  cereales/pastas: Cereales y pastas
+  pan y harinas: Pan y harinas
+  carnes: Carnes
+  pescados y mariscos: Pescado y marisco
+  huevos: Huevos
+  lácteos: Lácteos
+  quesos: Quesos
+  aceites/vinagres: Aceites y vinagres
+  especias/condimentos: Especias y condimentos
+  salsas: Salsas
+  frutos secos: Frutos secos
+  semillas: Semillas
+  enlatados: Enlatados
+  congelados: Congelados
+  bebidas: Bebidas
+  dulces/postres: Dulces y postres
+  limpieza/hogar: Limpieza y hogar

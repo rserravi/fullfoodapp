@@ -146,3 +146,9 @@ seed-rag:
 test-e2e:
 	PYTHONPATH=. .venv/bin/pytest tests/test_e2e_mvp.py -q
 
+.PHONY: ingest-local
+
+ingest-local:
+	PYTHONPATH=. .venv/bin/python tools/ingest_local.py --root data --recreate
+
+.PHONY: gen-recipes ingest-generated ingest

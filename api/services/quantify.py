@@ -1,185 +1,228 @@
 from __future__ import annotations
-from typing import List, Dict, Tuple, Optional
+
+from typing import List, Dict, Any, Optional, Tuple
 import json
-import math
-import hashlib
+import re
+from collections import defaultdict
 
 from sqlmodel import Session
 
-from ..schemas import RecipeNeutral, IngredientItem, AggregatedItem
-from ..config import settings
-from ..llm import generate_json
-from ..utils.json_repair import repair_json_minimal, repair_via_llm
-from .cache import make_key, get_payload, set_payload
+from ..schemas import AggregatedItem, RecipeNeutral
+from .ingredients import extract_ingredients  # parser básico de ingredientes desde RecipeNeutral
+from .catalog import categorize_names
 
-# --- Normalización de unidades ---
-UNIT_ALIASES = {
-    "g": ("g", 1.0), "gr": ("g", 1.0), "gramo": ("g", 1.0), "gramos": ("g", 1.0),
-    "kg": ("g", 1000.0), "kilo": ("g", 1000.0), "kilogramo": ("g", 1000.0), "kilogramos": ("g", 1000.0),
+# Opcional: si existe la util de LLM del generador, la usamos; si no, seguimos con fallback sin romper.
+try:
+    from ..routes.generate import _call_llm as call_llm  # type: ignore
+except Exception:  # pragma: no cover
+    call_llm = None  # type: ignore
 
-    "ml": ("ml", 1.0), "mililitro": ("ml", 1.0), "mililitros": ("ml", 1.0),
-    "l": ("ml", 1000.0), "lt": ("ml", 1000.0), "litro": ("ml", 1000.0), "litros": ("ml", 1000.0),
-    "cc": ("ml", 1.0), "cl": ("ml", 10.0),
 
-    "ud": ("ud", 1.0), "unidad": ("ud", 1.0), "unidades": ("ud", 1.0), "pieza": ("ud", 1.0), "piezas": ("ud", 1.0),
-}
+# -----------------------------
+# Helpers de parsing/normalización
+# -----------------------------
 
-VOLUME_SPOONS = {
-    "cda": 15.0, "cucharada": 15.0, "cucharadas": 15.0,
-    "cdta": 5.0, "cucharadita": 5.0, "cucharaditas": 5.0,
-    "taza": 240.0, "tazas": 240.0, "cup": 240.0, "cups": 240.0,
-}
+_JSON_BLOCK_RE = re.compile(
+    r"(?P<json>(\[\s*(\{.*?\}\s*,?\s*)+\])|(\{\s*.*?\s*\}))",
+    re.DOTALL,
+)
 
-LIQUID_HINTS = {"agua", "aceite", "leche", "caldo", "vinagre", "zumo", "salsa"}
+def _safe_json_parse(text: str) -> Optional[Any]:
+    """
+    Intenta parsear JSON de forma robusta:
+    - Recorta fences ```...```
+    - Busca primer bloque JSON con regex (array u objeto)
+    - Devuelve None si no hay JSON válido
+    """
+    if not text or not isinstance(text, str):
+        return None
 
-def _norm_name(name: str) -> str:
-    return " ".join(name.strip().lower().split())
+    t = text.strip()
 
-def _sha1_json(obj) -> str:
-    blob = json.dumps(obj, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+    # Quita bloques de markdown si vienen
+    if t.startswith("```"):
+        # elimina la primera y última fence si existen
+        t = re.sub(r"^```[a-zA-Z0-9_-]*", "", t).strip()
+        t = re.sub(r"```$", "", t).strip()
 
-def canonical_unit(unit: Optional[str]) -> Tuple[Optional[str], Optional[float]]:
-    if not unit:
+    # ¿es JSON completo ya?
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+
+    # Busca el primer bloque con pinta de JSON
+    m = _JSON_BLOCK_RE.search(t)
+    if not m:
+        return None
+
+    block = m.group("json")
+    try:
+        return json.loads(block)
+    except Exception:
+        return None
+
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def _try_qty_unit(s: str) -> Tuple[Optional[float], Optional[str]]:
+    """
+    Heurística muy simple para detectar algo tipo "200 g", "2 ud", "1 lata".
+    Si no detecta, devuelve (None, None).
+    """
+    if not s:
         return None, None
-    u = unit.strip().lower()
-    if u in UNIT_ALIASES:
-        canon, factor = UNIT_ALIASES[u]
-        return canon, factor
-    if u in VOLUME_SPOONS:
-        return "ml", VOLUME_SPOONS[u]
-    return None, None
+    m = re.match(r"^\s*(\d+(?:[.,]\d+)?)\s*([a-zA-ZñÑáéíóúÁÉÍÓÚ/]+)\s*$", s)
+    if not m:
+        return None, None
+    qty_raw = m.group(1).replace(",", ".")
+    try:
+        qty = float(qty_raw)
+    except Exception:
+        qty = None
+    unit = m.group(2).lower()
+    return qty, unit
 
-def normalize_item(it: IngredientItem) -> IngredientItem:
-    name = _norm_name(it.name)
-    qty = it.qty
-    unit = it.unit.lower() if it.unit else None
 
-    if unit in VOLUME_SPOONS:
-        unit = "ml"
-        qty = (qty or 0) * VOLUME_SPOONS[unit] if qty is not None else None
+# -----------------------------
+# LLM extraction (opcional, tolerante a fallos)
+# -----------------------------
 
-    canon, factor = canonical_unit(unit)
-    if canon:
-        unit = canon
-        if qty is not None and factor and factor != 1.0:
-            qty = qty * factor
+async def llm_extract_ingredients(
+    recipe: RecipeNeutral,
+    session: Session,
+    user_id: str,
+) -> List[Dict[str, Any]]:
+    """
+    Intenta pedir al LLM una estructura JSON con ingredientes.
+    Formato esperado por item: {"name": str, "qty": float|int|null, "unit": str|null}
+    Nunca levanta excepción: si algo va mal, devuelve [].
+    """
+    if call_llm is None:
+        return []
 
-    if (qty is None or qty == 0) and (not unit) and any(tok in name for tok in LIQUID_HINTS):
-        unit = "ml"
+    # Prompt minimalista y robusto (evita depender de archivo de plantilla).
+    # Si quieres moverlo a /api/prompts/ más adelante, sin problema.
+    sys_prompt = (
+        "Eres un asistente que EXTRAe ingredientes a partir de una receta en JSON.\n"
+        "Responde EXCLUSIVAMENTE con un array JSON de objetos con claves: name, qty, unit.\n"
+        "Ejemplo: [{\"name\":\"aceite de oliva\",\"qty\":15,\"unit\":\"ml\"}, {\"name\":\"sal\",\"qty\":null,\"unit\":null}]"
+    )
+    user_payload = {
+        "title": recipe.title,
+        "portions": recipe.portions,
+        "steps": recipe.steps_generic,
+    }
+    prompt = f"{sys_prompt}\n\nRECIPE_JSON:\n```json\n{json.dumps(user_payload, ensure_ascii=False)}\n```"
 
-    return IngredientItem(name=name, qty=qty, unit=unit)
+    try:
+        raw = await call_llm(prompt)
+    except Exception:
+        return []
 
-def aggregate_items(items: List[IngredientItem]) -> List[AggregatedItem]:
-    acc: Dict[Tuple[str, str], float] = {}
-    for raw in items:
-        it = normalize_item(raw)
-        if it.qty is None or it.unit is None:
-            key = (it.name, "ud")
-            acc[key] = acc.get(key, 0.0) + 1.0
+    data = _safe_json_parse(raw)
+    if not isinstance(data, list):
+        return []
+
+    items: List[Dict[str, Any]] = []
+    for it in data:
+        if not isinstance(it, dict):
             continue
-        key = (it.name, it.unit)
-        acc[key] = acc.get(key, 0.0) + float(it.qty)
-
-    out: List[AggregatedItem] = []
-    for (name, unit), qty in sorted(acc.items()):
-        q = float(qty)
-        if unit in ("g", "ml", "ud"):
-            if abs(q - round(q)) < 1e-6:
-                q = float(int(round(q)))
-        out.append(AggregatedItem(name=name, qty=q, unit=unit))
-    return out
-
-# ---------------------- Extracción LLM con CACHE ----------------------
-
-async def llm_extract_ingredients(recipe: RecipeNeutral, session: Session, user_id: str) -> List[IngredientItem]:
-    """
-    Usa cache por (user_id, hash_receta) durante 7 días.
-    """
-    from pathlib import Path
-
-    recipe_dump = recipe.model_dump()
-    rec_hash = _sha1_json(recipe_dump)
-    cache_key = make_key("extract", {"recipe": rec_hash})
-
-    cached = get_payload(session, user_id, cache_key)
-    if cached is not None:
-        try:
-            return [IngredientItem(**obj) for obj in cached]
-        except Exception:
-            pass  # si hay algo raro en cache, seguimos y recalculamos
-
-    # --- LLM call ---
-    tmpl_path = Path(__file__).resolve().parents[1] / "prompts" / "ingredient_extraction.md"
-    tmpl = tmpl_path.read_text(encoding="utf-8")
-    prompt = (tmpl
-              .replace("{{portions}}", str(recipe.portions))
-              .replace("{{recipe_json}}", json.dumps(recipe_dump, ensure_ascii=False, indent=2)))
-
-    try:
-        raw = await generate_json(prompt, model=settings.llm_model, temperature=0.0, max_tokens=800)
-    except Exception:
-        names = _fallback_names(recipe)
-        items = [IngredientItem(name=n, qty=None, unit=None) for n in names]
-        # guardamos fallback también para no recalcular cada vez (TTL corto)
-        set_payload(session, user_id, cache_key, [i.model_dump() for i in items], ttl_seconds=24*3600)
-        return items
-
-    # Parse
-    try:
-        data = json.loads(raw)
-    except Exception:
-        ok, repaired = repair_json_minimal(raw)
-        if ok:
-            data = json.loads(repaired)
+        name = _norm_name(str(it.get("name") or ""))
+        if not name:
+            continue
+        qty = it.get("qty", None)
+        unit = it.get("unit", None)
+        # normaliza qty si viene como str "200 g"
+        if isinstance(qty, str) and not unit:
+            q, u = _try_qty_unit(qty)
+            qty, unit = q, u
+        # valida tipos
+        if isinstance(qty, (int, float)):
+            qv: Optional[float] = float(qty)
         else:
-            fixed = await repair_via_llm(raw)
-            data = json.loads(fixed)
+            qv = None
+        uv: Optional[str] = (str(unit).lower() if isinstance(unit, str) and unit.strip() else None)
+        items.append({"name": name, "qty": qv, "unit": uv})
 
-    if isinstance(data, dict) and "items" in data and isinstance(data["items"], list):
-        data = data["items"]
-
-    items: List[IngredientItem] = []
-    if isinstance(data, list):
-        for obj in data:
-            if not isinstance(obj, dict) or "name" not in obj:
-                continue
-            name = str(obj.get("name", "")).strip()
-            if not name:
-                continue
-            qty = obj.get("qty", None)
-            try:
-                qty = float(qty) if qty is not None else None
-            except Exception:
-                qty = None
-            unit = obj.get("unit", None)
-            unit = str(unit).strip().lower() if unit is not None else None
-            if unit not in (None, "g", "ml", "ud", "kg", "l",
-                            "gramos", "gramo", "litros", "litro",
-                            "taza", "tazas", "cda", "cucharada", "cucharadas",
-                            "cdta", "cucharadita", "cucharaditas"):
-                unit = None
-            items.append(IngredientItem(name=name, qty=qty, unit=unit))
-
-    if not items:
-        names = _fallback_names(recipe)
-        items = [IngredientItem(name=n, qty=None, unit=None) for n in names]
-
-    # Cache 7 días
-    set_payload(session, user_id, cache_key, [i.model_dump() for i in items], ttl_seconds=7*24*3600)
     return items
 
-def _fallback_names(recipe: RecipeNeutral) -> List[str]:
-    seen = set()
-    out: List[str] = []
-    for step in recipe.steps_generic:
-        for ing in step.ingredients or []:
-            n = _norm_name(ing)
-            if n and n not in seen:
-                seen.add(n)
-                out.append(n)
-    return out
 
-async def extract_and_aggregate(recipe: RecipeNeutral, session: Session, user_id: str) -> List[AggregatedItem]:
-    items = await llm_extract_ingredients(recipe, session, user_id)
-    return aggregate_items(items)
+# -----------------------------
+# Agregado + categorización
+# -----------------------------
+
+def _aggregate_items(items: List[Dict[str, Any]]) -> List[AggregatedItem]:
+    merged: Dict[Tuple[str, Optional[str]], float] = defaultdict(float)
+    seen_keys: set = set()
+
+    # Sumamos cantidades por (name, unit). Si qty es None, mantenemos una sola entrada.
+    for it in items:
+        name = _norm_name(it.get("name", ""))
+        if not name:
+            continue
+        unit = it.get("unit", None)
+        qty = it.get("qty", None)
+
+        key = (name, unit if isinstance(unit, str) else None)
+        if qty is None:
+            # Si no hay cantidad, aseguramos que exista la clave (sin sumar)
+            if key not in seen_keys and key not in merged:
+                merged[key] = 0.0
+                seen_keys.add(key)
+            continue
+
+        try:
+            merged[key] += float(qty)
+        except Exception:
+            # si qty no es convertible, la ignoramos como None
+            if key not in seen_keys and key not in merged:
+                merged[key] = 0.0
+                seen_keys.add(key)
+
+    # Construimos lista resultante (qty 0.0 -> None para “desconocida”)
+    result: List[AggregatedItem] = []
+    for (name, unit), total in merged.items():
+        q: Optional[float] = None if total == 0.0 else total
+        result.append(AggregatedItem(name=name, qty=q, unit=unit, category=None))
+    return result
+
+
+async def extract_and_aggregate(
+    recipe: RecipeNeutral,
+    session: Session,
+    user_id: str,
+) -> List[AggregatedItem]:
+    """
+    Pipeline tolerante:
+    1) Intenta LLM → lista [{name, qty, unit}]
+    2) Si falla o viene vacío → fallback determinista a partir de los steps de la receta
+    3) Agrega por (name,unit) y categoriza
+    """
+    items: List[Dict[str, Any]] = []
+
+    # 1) LLM (no rompe si falla)
+    try:
+        items = await llm_extract_ingredients(recipe, session, user_id)
+    except Exception:
+        items = []
+
+    # 2) Fallback determinista si hace falta
+    if not items:
+        names = extract_ingredients(recipe)  # List[str]
+        items = [{"name": _norm_name(n), "qty": None, "unit": None} for n in names if _norm_name(n)]
+
+    # 3) Agregado
+    aggregated = _aggregate_items(items)
+
+    # 4) Categorías
+    cat_map = categorize_names(session, user_id, [a.name for a in aggregated])
+    for a in aggregated:
+        a.category = cat_map.get(a.name, None)
+
+    # Orden amigable por categoría y nombre
+    aggregated.sort(key=lambda x: ((x.category or "zzzz"), x.name))
+
+    return aggregated

@@ -1,11 +1,11 @@
 from __future__ import annotations
 from typing import Optional, List, Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import uuid
 
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, JSON as SAJSON
-
+from sqlalchemy.types import JSON as SAJSON
 
 class ShoppingItem(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)
@@ -66,3 +66,21 @@ class KVCache(SQLModel, table=True):
     value: Dict[str, Any] = Field(sa_column=Column(SAJSON))
     expires_at: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class Cache(SQLModel, table=True):
+    """
+    Entradas de caché por usuario y clave.
+    Guardamos payload en JSON y fechas en UTC (aware).
+    """
+    __tablename__ = "cache"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: str = Field(index=True)
+    key: str = Field(index=True)
+
+    # Se almacena como JSON en la BD (en SQLite será TEXT bajo el capó)
+    payload: Optional[Any] = Field(default=None, sa_column=Column(SAJSON))
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: Optional[datetime] = Field(default=None)

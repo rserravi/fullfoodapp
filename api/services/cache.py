@@ -1,81 +1,118 @@
+# api/services/cache.py
 from __future__ import annotations
-from typing import Optional, Any, Dict
-from datetime import datetime, timezone, timedelta
-import json
-import hashlib
-from prometheus_client import Counter
-from sqlmodel import Session, select
-from ..models_db import KVCache
 
-CACHE_HIT = Counter("cache_hit_total", "Cache hits", ["key_prefix"])
-CACHE_MISS = Counter("cache_miss_total", "Cache misses", ["key_prefix"])
+from typing import Any, Optional, Dict
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+
+from sqlmodel import Session, select
+from ..models_db import Cache
+
+
+# ---------------------------
+# Helpers de tiempo (UTC aware)
+# ---------------------------
 
 def now_utc() -> datetime:
+    """Fecha/hora actual en UTC con tzinfo (aware)."""
     return datetime.now(timezone.utc)
 
-def make_key(prefix: str, payload: Dict[str, Any]) -> str:
-    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
-    h = hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+def _as_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """Convierte un datetime a UTC-aware. Si viene naive, asumimos UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+# ---------------------------
+# Claves y serialización
+# ---------------------------
+
+def make_key(prefix: str, parts: Dict[str, Any]) -> str:
+    """
+    Crea una clave determinista y corta a partir de un dict.
+    """
+    raw = json.dumps(parts, sort_keys=True, ensure_ascii=False)
+    h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     return f"{prefix}:{h}"
 
-def _label_from_key(key: str) -> str:
-    return key.split(":", 1)[0] if ":" in key else key
 
-def get_cache(session: Session, user_id: str, key: str) -> Optional[Dict[str, Any]]:
+# ---------------------------
+# Acceso a caché
+# ---------------------------
+
+def get_cache(session: Session, user_id: str, key: str) -> Optional[Cache]:
+    """
+    Devuelve la fila de caché válida o None. Si está expirada, la borra.
+    """
     row = session.exec(
-        select(KVCache).where(KVCache.user_id == user_id, KVCache.key == key).limit(1)
+        select(Cache).where(Cache.user_id == user_id, Cache.key == key)
     ).first()
+
     if not row:
-        CACHE_MISS.labels(_label_from_key(key)).inc()
         return None
-    if row.expires_at and row.expires_at < now_utc():
+
+    expires_at = _as_aware(row.expires_at)
+    if expires_at and expires_at < now_utc():
+        # expirada → eliminar
         session.delete(row)
         session.commit()
-        CACHE_MISS.labels(_label_from_key(key)).inc()
         return None
-    CACHE_HIT.labels(_label_from_key(key)).inc()
-    return row.value
 
-def set_cache(session: Session, user_id: str, key: str, value: Dict[str, Any], ttl_seconds: Optional[int] = None):
-    expires_at = None
-    if ttl_seconds:
-        expires_at = now_utc() + timedelta(seconds=ttl_seconds)
-    old = session.exec(
-        select(KVCache).where(KVCache.user_id == user_id, KVCache.key == key)
+    return row
+
+
+def set_cache(
+    session: Session,
+    user_id: str,
+    key: str,
+    payload: Any,
+    ttl_seconds: int = 3600,
+) -> None:
+    """
+    Upsert de una entrada en caché. Siempre guarda fechas aware (UTC).
+    """
+    expires_at = now_utc() + timedelta(seconds=ttl_seconds)
+    row = session.exec(
+        select(Cache).where(Cache.user_id == user_id, Cache.key == key)
     ).first()
-    if old:
-        session.delete(old)
-        session.commit()
-    session.add(KVCache(user_id=user_id, key=key, value=value, expires_at=expires_at))
+
+    if row:
+        row.payload = payload
+        row.expires_at = _as_aware(expires_at)
+        row.updated_at = now_utc()
+        session.add(row)
+    else:
+        row = Cache(
+            user_id=user_id,
+            key=key,
+            payload=payload,
+            created_at=now_utc(),
+            updated_at=now_utc(),
+            expires_at=_as_aware(expires_at),
+        )
+        session.add(row)
+
     session.commit()
+
 
 def get_payload(session: Session, user_id: str, key: str) -> Optional[Any]:
-    v = get_cache(session, user_id, key)
-    if isinstance(v, dict) and "payload" in v:
-        return v["payload"]
-    return None
+    """
+    Devuelve solo el payload (o None si no existe / está expirado).
+    """
+    row = get_cache(session, user_id, key)
+    return row.payload if row else None
 
-def set_payload(session: Session, user_id: str, key: str, payload: Any, ttl_seconds: Optional[int] = None):
-    set_cache(session, user_id, key, {"payload": payload}, ttl_seconds=ttl_seconds)
 
-def delete_key(session: Session, user_id: str, key: str) -> int:
-    row = session.exec(
-        select(KVCache).where(KVCache.user_id == user_id, KVCache.key == key)
-    ).first()
-    if not row:
-        return 0
-    session.delete(row)
-    session.commit()
-    return 1
-
-def delete_prefix(session: Session, user_id: str, prefix: str) -> int:
-    rows = session.exec(
-        select(KVCache).where(KVCache.user_id == user_id)
-    ).all()
-    n = 0
-    for r in rows:
-        if r.key.startswith(prefix + ":"):
-            session.delete(r); n += 1
-    if n:
-        session.commit()
-    return n
+def set_payload(
+    session: Session,
+    user_id: str,
+    key: str,
+    payload: Any,
+    ttl_seconds: int = 3600,
+) -> None:
+    set_cache(session, user_id, key, payload, ttl_seconds)

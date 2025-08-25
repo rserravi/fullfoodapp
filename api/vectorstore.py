@@ -1,62 +1,108 @@
 from __future__ import annotations
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Iterable, Optional
 from uuid import uuid4
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
-import httpx
+from qdrant_client.models import VectorParams, Distance, PointStruct
 
 from .config import settings
 
-_client = QdrantClient(url=settings.qdrant_url, timeout=settings.rag_timeout_s)
+def _client() -> QdrantClient:
+    return QdrantClient(url=settings.qdrant_url, timeout=settings.rag_timeout_s)
 
-def _vec_cfg() -> Dict[str, VectorParams]:
-    cfg: Dict[str, VectorParams] = {}
-    for name, dim in settings.parsed_vector_dims().items():
-        cfg[name] = VectorParams(size=dim, distance=Distance.COSINE)
-    return cfg
-
-@retry(reraise=True, stop=stop_after_attempt(3), wait=wait_exponential(min=0.2, max=2), retry=retry_if_exception_type(Exception))
-async def ensure_collection(vector_dims: Dict[str, int]):
+async def ensure_collection(vector_dims: Optional[Dict[str, int]] = None) -> None:
+    """
+    Asegura la colección multi-vector. Si no existe, la crea.
+    Nota: no recrea si ya existe (evita pérdidas accidentales).
+    """
+    client = _client()
     name = settings.collection_name
-    exists = _client.collection_exists(name)
-    if not exists:
-        _client.recreate_collection(
-            collection_name=name,
-            vectors_config=_vec_cfg()
-        )
+    dims = vector_dims or settings.parsed_vector_dims()
+    if client.collection_exists(name):
+        return
+    cfg = {k: VectorParams(size=v, distance=Distance.COSINE) for k, v in dims.items()}
+    client.create_collection(collection_name=name, vectors_config=cfg)
 
-async def upsert_documents(texts: List[str], payloads: List[Dict[str, Any]], embeddings: Dict[str, List[List[float]]]):
+def _expected_vector_names() -> List[str]:
+    # Debe coincidir con settings.vector_dims (p.ej. "mxbai:1024,jina:768")
+    return list(settings.parsed_vector_dims().keys())
+
+def upsert_documents(texts: List[str], payloads: List[Dict[str, Any]], embeddings: Dict[str, List[List[float]]]) -> None:
+    """
+    Inserta/actualiza puntos multi-vector en Qdrant.
+    - Valida que existan todas las claves esperadas (p.ej. "mxbai","jina").
+    - Omite documentos cuyos embeddings vengan vacíos o desalineados.
+    """
+    assert len(texts) == len(payloads), "texts y payloads deben tener igual longitud"
+    client = _client()
+    name = settings.collection_name
+    expected = _expected_vector_names()
+
+    n = len(texts)
+    # Validación de presencia y conteo
+    for k in expected:
+        if k not in embeddings:
+            raise ValueError(f"Faltan embeddings para la clave '{k}'. Claves recibidas: {list(embeddings.keys())}")
+        if len(embeddings[k]) != n:
+            raise ValueError(f"Desalineación en '{k}': esperados {n} vectores, recibidos {len(embeddings[k])}")
+
     points: List[PointStruct] = []
-    name_map = { "mxbai-embed-large": "mxbai", "jina/jina-embeddings-v2-base-es": "jina", "mxbai": "mxbai", "jina": "jina" }
-    for i, text in enumerate(texts):
-        vec_dict: Dict[str, List[float]] = { name_map[k]: embeddings[k][i] for k in embeddings }
+    skipped = 0
+
+    for i in range(n):
+        vec_dict: Dict[str, List[float]] = {}
+        valid = True
+        for k in expected:
+            vec = embeddings[k][i]
+            # vec debe ser lista con longitud > 0
+            if not isinstance(vec, list) or len(vec) == 0:
+                valid = False
+                break
+            vec_dict[k] = vec
+
+        if not valid:
+            skipped += 1
+            continue
+
+        payload = (payloads[i] or {}).copy()
+        payload["text"] = texts[i]
+        payload.setdefault("user_id", payload.get("user_id", "default"))
+
         points.append(PointStruct(
             id=str(uuid4()),
-            vector=vec_dict,
-            payload=payloads[i] | {"text": text}
+            vector=vec_dict,     # dict { "mxbai": [...], "jina": [...] }
+            payload=payload
         ))
-    _client.upsert(collection_name=settings.collection_name, points=points)
 
-async def search(query_vecs: Dict[str, List[float]], top_k: int = 5, filters: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
+    if points:
+        client.upsert(collection_name=name, points=points)
+    if skipped:
+        print(f"[vectorstore] Aviso: omitidos {skipped} documento(s) por embeddings vacíos/invalidos.")
+
+def search(query_vectors: Dict[str, List[float]], top_k: int = 5) -> List[Dict[str, Any]]:
     """
-    Multi-vector search: hace una búsqueda por cada vector y fusiona resultados simples.
+    Búsqueda por múltiples vectores: devuelve los mejores resultados mergeados por score.
+    Estrategia simple: buscar por la primera clave y usar 'score' devuelto.
     """
-    all_hits: List[Tuple[str, float, Dict[str, Any]]] = []
-    for vec_name, vec in query_vecs.items():
-        res = _client.search(
-            collection_name=settings.collection_name,
-            query_vector=(vec_name, vec),
-            limit=top_k,
-        )
-        for hit in res:
-            all_hits.append((hit.id, float(hit.score), hit.payload))
-    # ordenar por score desc y desduplicar por id
-    seen = set()
+    client = _client()
+    name = settings.collection_name
+    # Elegimos una clave principal (la primera de expected que exista en la query)
+    expected = _expected_vector_names()
+    primary = next((k for k in expected if k in query_vectors), None)
+    if not primary:
+        raise ValueError(f"No hay vectores de consulta válidos. Esperados alguno de {expected}, recibido {list(query_vectors.keys())}")
+    res = client.search(
+        collection_name=name,
+        query_vector=(primary, query_vectors[primary]),
+        limit=top_k,
+        with_payload=True
+    )
+    # Normaliza a dicts sencillos
     out: List[Dict[str, Any]] = []
-    for pid, score, payload in sorted(all_hits, key=lambda x: x[1], reverse=True):
-        if pid in seen:
-            continue
-        seen.add(pid)
-        out.append({"id": pid, "score": score, "payload": payload})
+    for r in res:
+        out.append({
+            "id": r.id,
+            "score": float(r.score),
+            "payload": r.payload
+        })
     return out
