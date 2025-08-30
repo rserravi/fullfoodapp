@@ -41,8 +41,7 @@ async def _vectorize_user_recipe(session: Session, user_id: str, ur: UserRecipe)
     text = recipe_to_text(ur.title, rn)
     embs = await embed_dual([text])  # usa modelos por defecto de settings
     payloads = [_payload_for_qdrant(user_id, ur)]
-    # upsert_documents es sincrona en tu código
-    upsert_documents([text], payloads, embs)
+    await upsert_documents([text], payloads, embs)
 
 
 @router.post(
@@ -194,7 +193,7 @@ async def update_user_recipe(
     session.refresh(r)
 
     # Re-vectorizar: borramos embeddings anteriores por filtro y reinsertamos
-    delete_user_recipe_vectors(user_id=user_id, recipe_id=recipe_id)
+    await delete_user_recipe_vectors(user_id=user_id, recipe_id=recipe_id)
     await _vectorize_user_recipe(session, user_id, r)
 
     return UserRecipeOut(
@@ -217,7 +216,7 @@ async def update_user_recipe(
     summary="Eliminar una receta del usuario (borra embeddings del RAG)",
     responses={200: {"description": "Eliminada"}, 404: {"model": ErrorResponse}},
 )
-def delete_user_recipe(
+async def delete_user_recipe(
     recipe_id: str,
     session: Session = Depends(get_session),
     user_id: str = Depends(get_current_user),
@@ -227,7 +226,7 @@ def delete_user_recipe(
         raise HTTPException(status_code=404, detail="Receta no encontrada")
 
     # borra embeddings
-    delete_user_recipe_vectors(user_id=user_id, recipe_id=recipe_id)
+    await delete_user_recipe_vectors(user_id=user_id, recipe_id=recipe_id)
 
     session.delete(r)
     session.commit()

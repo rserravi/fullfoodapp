@@ -35,7 +35,7 @@ async def rag_ingest(
             md["source_id"] = d.id
         payloads.append(md)
     embs = await embed_dual(texts)
-    upsert_documents(texts, payloads, embs)
+    await upsert_documents(texts, payloads, embs)
     return {"ok": True, "ingested": len(texts)}
 
 @router.post(
@@ -61,8 +61,8 @@ async def rag_search(req: SearchRequest = Body(...), user_id: str = Depends(get_
     if not qvecs:
         raise HTTPException(500, "No se obtuvieron embeddings válidos para la consulta.")
 
-    # 3) Búsqueda en Qdrant (SIN await: función síncrona)
-    hits = search(qvecs, top_k=req.top_k)
+    # 3) Búsqueda en Qdrant
+    hits = await search(qvecs, top_k=req.top_k)
 
     # 4) Normaliza la respuesta
     out = []
