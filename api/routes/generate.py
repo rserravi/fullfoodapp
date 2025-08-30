@@ -184,7 +184,7 @@ async def generate_recipe(
         raise HTTPException(500, "Fallo al preparar embeddings de búsqueda (sin vectores válidos).")
 
     # 3) Búsqueda RAG
-    hits = search(query_vectors, top_k=req.top_k)
+    hits = await search(query_vectors, top_k=req.top_k)
 
     # 4) Contexto y fuentes
     context = _format_context(hits)

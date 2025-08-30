@@ -57,3 +57,9 @@ REDIS_URL=redis://localhost:6379/0
 REDIS_PASSWORD=tu_password  # opcional
 ```
 
+### 🔐 Variables de entorno
+
+- `SERVICE_ENV`: entorno de ejecución (`dev` por defecto). Para producción usar `prod`.
+- `JWT_SECRET`: secreto para firmar tokens JWT. Debe cambiarse respecto al valor por defecto y es obligatorio fuera de desarrollo.
+- `AUTH_FALLBACK_USER`: usuario alternativo para desarrollo. Se deshabilita automáticamente en producción.
+- `AUTH_DEV_PIN`: PIN de desarrollo requerido en `dev` (debe definirse como variable de entorno) y no debe existir en `prod`.
