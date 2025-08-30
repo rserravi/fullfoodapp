@@ -16,6 +16,7 @@ from .routes.admin import router as admin_router
 from .routes.auth import router as auth_router
 from .routes.rag import router as rag_router
 from .routes.generate import router as generate_router
+from .routes.user_recipes import router as user_recipes_router
 from .middleware.rate_limit import RateLimitMiddleware
 from .middleware.size_limit import SizeLimitMiddleware
 from .errors import install_exception_handlers
@@ -75,6 +76,7 @@ app.include_router(catalog_router)
 app.include_router(admin_router)
 app.include_router(rag_router)
 app.include_router(generate_router)
+app.include_router(user_recipes_router)
 
 
 @app.get("/health", tags=["admin"], summary="Healthcheck simple")
