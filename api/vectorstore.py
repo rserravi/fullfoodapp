@@ -2,20 +2,20 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional
 from uuid import uuid4
 
-from qdrant_client import QdrantClient
+from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
 from qdrant_client.http import models as qm
 
 from .config import settings
 
 # -------- Qdrant client (singleton) --------
-_qc: Optional[QdrantClient] = None
+_qc: Optional[AsyncQdrantClient] = None
 
-def get_client() -> QdrantClient:
+def get_client() -> AsyncQdrantClient:
     """Return a singleton Qdrant client."""
     global _qc
     if _qc is None:
-        _qc = QdrantClient(
+        _qc = AsyncQdrantClient(
             url=getattr(settings, "qdrant_url", None),
             host=getattr(settings, "qdrant_host", None),
             port=getattr(settings, "qdrant_port", None),
@@ -32,17 +32,17 @@ async def ensure_collection(vector_dims: Optional[Dict[str, int]] = None) -> Non
     client = get_client()
     name = settings.collection_name
     dims = vector_dims or settings.parsed_vector_dims()
-    if client.collection_exists(name):
+    if await client.collection_exists(name):
         return
     cfg = {k: VectorParams(size=v, distance=Distance.COSINE) for k, v in dims.items()}
-    client.create_collection(collection_name=name, vectors_config=cfg)
+    await client.create_collection(collection_name=name, vectors_config=cfg)
 
 def _expected_vector_names() -> List[str]:
     # Must match settings.vector_dims (e.g., "mxbai:1024,jina:768")
     return list(settings.parsed_vector_dims().keys())
 
 # -------- Upsert --------
-def upsert_documents(
+async def upsert_documents(
     texts: List[str],
     payloads: List[Dict[str, Any]],
     embeddings: Dict[str, List[List[float]]],
@@ -94,12 +94,12 @@ def upsert_documents(
         )
 
     if points:
-        client.upsert(collection_name=name, points=points)
+        await client.upsert(collection_name=name, points=points)
     if skipped:
         print(f"[vectorstore] Aviso: omitidos {skipped} documento(s) por embeddings vacíos/invalidos.")
 
 # -------- Search --------
-def search(query_vectors: Dict[str, List[float]], top_k: int = 5) -> List[Dict[str, Any]]:
+async def search(query_vectors: Dict[str, List[float]], top_k: int = 5) -> List[Dict[str, Any]]:
     """
     Multi-vector search (simple strategy: query using first available named vector).
     """
@@ -113,7 +113,7 @@ def search(query_vectors: Dict[str, List[float]], top_k: int = 5) -> List[Dict[s
             f"recibido {list(query_vectors.keys())}"
         )
 
-    res = client.search(
+    res = await client.search(
         collection_name=name,
         query_vector=(primary, query_vectors[primary]),
         limit=top_k,
@@ -132,12 +132,12 @@ def search(query_vectors: Dict[str, List[float]], top_k: int = 5) -> List[Dict[s
     return out
 
 # -------- Delete (user recipe vectors) --------
-def delete_user_recipe_vectors(user_id: str, recipe_id: str) -> None:
+async def delete_user_recipe_vectors(user_id: str, recipe_id: str) -> None:
     """
     Delete all Qdrant points for a given user recipe based on payload filters.
     """
     client = get_client()
-    client.delete(
+    await client.delete(
         collection_name=settings.collection_name,
         points_selector=qm.Filter(
             must=[

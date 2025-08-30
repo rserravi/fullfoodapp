@@ -1,4 +1,5 @@
 from typing import Dict, Optional
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -40,7 +41,7 @@ class Settings(BaseSettings):
     auth_fallback_user: Optional[str] = "default"
     jwt_secret: str = "change-me-dev"
     jwt_expire_minutes: int = 120
-    auth_dev_pin: str = "000000"
+    auth_dev_pin: Optional[str] = None
 
     # Rate limiting
     rate_limit_rpm: int = 60
@@ -69,5 +70,19 @@ class Settings(BaseSettings):
             user, token = pair.split(":", 1)
             mapping[token.strip()] = user.strip()
         return mapping
+
+    @model_validator(mode="after")
+    def _validate_security(self) -> "Settings":
+        if self.service_env != "dev":
+            if self.jwt_secret == "change-me-dev":
+                raise ValueError("jwt_secret must be set via environment variable in non-dev environments")
+            if self.auth_dev_pin is not None:
+                raise ValueError("auth_dev_pin is only allowed in development")
+            if self.service_env == "prod":
+                self.auth_fallback_user = None
+        else:
+            if not self.auth_dev_pin:
+                raise ValueError("auth_dev_pin must be defined via environment variable in development")
+        return self
 
 settings = Settings()

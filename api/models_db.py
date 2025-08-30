@@ -5,7 +5,6 @@ import uuid
 
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, JSON as SAJSON
-from sqlalchemy.types import JSON as SAJSON
 
 class ShoppingItem(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)

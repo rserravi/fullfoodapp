@@ -141,7 +141,7 @@ async def _generate_recipe_neutral(
         raise HTTPException(500, "Fallo preparando embeddings de búsqueda (no hay vectores válidos).")
 
     # 3) Búsqueda RAG
-    hits = search(query_vectors, top_k=top_k)
+    hits = await search(query_vectors, top_k=top_k)
 
     # 4) Prompt desde plantilla y llamada LLM
     context = format_context(hits)

@@ -118,8 +118,8 @@ async def ingest_root(root: Path, recreate: bool):
     # Embeddings multi-modelo (usa settings si no pasas models)
     embs = await embed_dual(texts)
 
-    # Inserción (SIN await: es función síncrona)
-    upsert_documents(texts, payloads, embs)
+    # Inserción
+    await upsert_documents(texts, payloads, embs)
     print(f"Ingeridos {len(texts)} chunks de {len(files)} fichero(s) desde {root}")
 
 def main():

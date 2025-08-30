@@ -18,8 +18,8 @@ async def hybrid_retrieve(query: str, top_k_each: int = 5) -> List:
     model_map = {"mxbai": "mxbai-embed-large", "jina": "jina-embeddings-v2-base-es"}
     vec_mxbai = await embed_single(query, model_map["mxbai"])
     vec_jina  = await embed_single(query, model_map["jina"])
-    res_mxbai = await search(query, vec_mxbai, "mxbai", top_k_each)
-    res_jina  = await search(query, vec_jina,  "jina",  top_k_each)
+    res_mxbai = await search({"mxbai": vec_mxbai}, top_k_each)
+    res_jina  = await search({"jina": vec_jina},  top_k_each)
     return rrf_fuse([res_mxbai, res_jina])
 
 def build_context(hits, max_chars: int = 1400) -> str:
