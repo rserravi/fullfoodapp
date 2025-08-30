@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     rate_limit_rpm: int = 60
     rate_limit_burst: int = 60
 
+    # Redis (rate limiting)
+    redis_url: Optional[str] = None
+    redis_password: Optional[str] = None
+
     # Size limit
     max_body_bytes: int = 262144  # 256KB
 

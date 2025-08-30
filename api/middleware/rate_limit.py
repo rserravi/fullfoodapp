@@ -1,24 +1,22 @@
 from __future__ import annotations
 import time
-from collections import deque, defaultdict
-from typing import Deque, Dict, Optional, Set, Tuple, Callable
+from typing import Set
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
 from ..config import settings
+from ..rate_limit_store import store
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """
-    Límite sliding-window por API key/user_id (en memoria).
-    Desarrollado para despliegue simple (1 proceso). En multi-proceso usar Redis.
-    """
+    """Límite sliding-window por API key/user_id usando backend compartido (Redis)."""
     def __init__(self, app):
         super().__init__(app)
         self.window_s = 60.0
         self.limit = settings.rate_limit_rpm
         self.burst = settings.rate_limit_burst
         self.exempt: Set[str] = {"/health", "/metrics", "/docs", "/openapi.json"}
-        self.buckets: Dict[str, Deque[float]] = defaultdict(deque)
 
     def _identity(self, request: Request) -> str:
         # Igual que security.get_current_user, pero sin validar: sólo queremos una clave estable
@@ -40,15 +38,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         key = self._identity(request)
         now = time.monotonic()
-        q = self.buckets[key]
-
-        # limpia fuera de ventana
-        while q and (now - q[0]) > self.window_s:
-            q.popleft()
-
-        # aplica burst y límite
-        if len(q) >= max(self.limit, self.burst):
+        limit = max(self.limit, self.burst)
+        allowed = await store.allow(key, now, self.window_s, limit)
+        if not allowed:
             return JSONResponse({"detail": "Rate limit exceeded"}, status_code=429)
-
-        q.append(now)
         return await call_next(request)

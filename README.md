@@ -46,3 +46,14 @@ fullfoodapp/
 ollama pull mxbai-embed-large
 ollama pull jina/jina-embeddings-v2-base-es
 ollama pull llama3.1:8b
+```
+
+## 📦 Redis para rate limiting
+
+El middleware de límite de peticiones usa **Redis** como almacenamiento compartido. Configura en tu `.env`:
+
+```bash
+REDIS_URL=redis://localhost:6379/0
+REDIS_PASSWORD=tu_password  # opcional
+```
+
