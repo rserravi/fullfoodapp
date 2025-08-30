@@ -1,15 +1,39 @@
-import os
 import sys
+import types
+from pathlib import Path
+import importlib.metadata as importlib_metadata
+
 import pytest
+
+# Stub ``email_validator`` and its distribution metadata so that pydantic's
+# ``EmailStr`` can be imported without the optional dependency installed.
+mod = types.ModuleType("email_validator")
+
+
+def _validate_email(email, *args, **kwargs):  # pragma: no cover - simple stub
+    return types.SimpleNamespace(email=email, normalized=email, local_part=email)
+
+
+mod.validate_email = _validate_email
+mod.__version__ = "2.0.0"
+sys.modules.setdefault("email_validator", mod)
+
+_orig_version = importlib_metadata.version
+
+
+def _fake_version(name):  # pragma: no cover - used only in tests
+    if name == "email-validator":
+        return "2.0.0"
+    return _orig_version(name)
+
+
+importlib_metadata.version = _fake_version
+# Ensure project root on path for imports when executing from tests dir
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from fastapi.testclient import TestClient
-
-# Aseguramos que el paquete raíz esté en PYTHONPATH
-ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
-
-# Necesario para instanciar la configuración en modo desarrollo durante los tests.
-os.environ.setdefault("AUTH_DEV_PIN", "123456")
 
 import api.main as main
 
