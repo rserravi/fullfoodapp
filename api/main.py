@@ -113,7 +113,11 @@ async def health_deep():
     except Exception as e:
         ao_ok, ao_err = False, str(e)
         out["status"] = "degraded"
-    out["checks"]["azure_openai"] = {"ok": o_ok, "latency_ms": round((time.perf_counter()-t1)*1000, 1), "error": o_err}
+    out["checks"]["azure_openai"] = {
+        "ok": ao_ok,
+        "latency_ms": round((time.perf_counter() - t1) * 1000, 1),
+        "error": ao_err,
+    }
 
 
     return out
