@@ -35,6 +35,7 @@ app = FastAPI(
     title="FullFoodApp API",
     version="0.2.0",
     description="Backend de FullFoodApp (MVP). RAG local con Qdrant + Azure OpenAI, planificador semanal y lista de la compra.",
+
     default_response_class=ORJSONResponse,
     openapi_tags=TAGS_METADATA,
     contact={"name": "Equipo FullFoodApp", "email": "dev@fullfoodapp.local"},
@@ -88,6 +89,7 @@ async def health():
         "deployment": settings.azure_openai_llm_deployment,
     }
 
+
 @app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (Qdrant + Azure OpenAI)")
 async def health_deep():
     out = {"status": "ok", "checks": {}}
@@ -117,11 +119,13 @@ async def health_deep():
             payload = {"messages": [{"role": "system", "content": "ping"}], "max_tokens": 1}
             headers = {"api-key": settings.azure_openai_api_key}
             r = await c.post(url, json=payload, headers=headers)
+
             r.raise_for_status()
     except Exception as e:
         ao_ok, ao_err = False, str(e)
         out["status"] = "degraded"
     out["checks"]["azure_openai"] = {"ok": ao_ok, "latency_ms": round((time.perf_counter()-t1)*1000, 1), "error": ao_err}
+
 
     return out
 

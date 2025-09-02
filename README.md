@@ -3,6 +3,7 @@
 Aplicación MVP para recetas/compra con **FastAPI**, **Qdrant** como vector store y **Azure OpenAI** para LLM/embeddings.
 Incluye **RAG híbrido** (mxbai + jina) con **RRF**, compilador de receta neutra → electrodomésticos (*airfryer*, *horno*), y configuración vía **.env**.
 
+
 ---
 
 ## 📁 Estructura
@@ -11,7 +12,7 @@ fullfoodapp/
 │ ├─ main.py # Endpoints FastAPI
 │ ├─ config.py # Carga .env (pydantic-settings)
 │ ├─ schemas.py # Pydantic models
-│ ├─ embeddings.py # Cliente Ollama (embeddings, con fallbacks)
+│ ├─ embeddings.py # Cliente Azure OpenAI (embeddings)
 │ ├─ llm.py # Cliente Ollama (generate format=json)
 │ ├─ rag.py # Hybrid retrieve + RRF + context builder
 │ ├─ vectorstore.py # Cliente Qdrant (vectores con nombre)
@@ -36,15 +37,11 @@ fullfoodapp/
 
 - **Python 3.11+** (recomendado venv)
 - **Docker** (solo para Qdrant)
-- **Ollama** en local (`OLLAMA_URL`, por defecto `http://localhost:11434`)
-  - Modelos necesarios (nombres EXACTOS):
-    - `mxbai-embed-large`
-    - `jina/jina-embeddings-v2-base-es`  ← nota el prefijo `jina/`
-    - `llama3.1:8b` (LLM para generación JSON)
+- **Ollama** en local (`OLLAMA_URL`, por defecto `http://localhost:11434`) con el modelo:
+  - `llama3.1:8b` (LLM para generación JSON)
+- **Azure OpenAI** con un deployment de embeddings (por ejemplo `text-embedding-3-large`)
 
 ```bash
-ollama pull mxbai-embed-large
-ollama pull jina/jina-embeddings-v2-base-es
 ollama pull llama3.1:8b
 ```
 
