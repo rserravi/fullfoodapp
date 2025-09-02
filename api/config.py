@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # Azure OpenAI / LLM
     azure_openai_endpoint: str = "http://localhost:11434"
     azure_openai_api_key: Optional[str] = None
+
     azure_openai_deployment_llm: str = "gpt-4o-mini"
     azure_openai_timeout_s: int = 180
     azure_openai_api_version: str = "2024-02-15-preview"
@@ -69,6 +70,7 @@ class Settings(BaseSettings):
             name, dim = pair.split(":", 1)
             try:
                 mapping[name.strip()] = int(dim.strip())
+
             except ValueError:
                 continue
         return mapping
