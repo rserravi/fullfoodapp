@@ -14,18 +14,13 @@ class Settings(BaseSettings):
     # Azure OpenAI / LLM
     azure_openai_endpoint: str = "http://localhost:11434"
     azure_openai_api_key: str | None = None
+    azure_openai_api_version: str = "2024-02-15-preview"
     azure_openai_deployment_llm: str = "gpt-4o-mini"
     azure_openai_deployment_embeddings: str = "text-embedding-3-small"
     azure_openai_timeout_s: int = 180
 
     llm_timeout_s: int = 45
     llm_max_concurrency: int = 3
-
-    # Azure OpenAI
-    azure_openai_endpoint: str = ""
-    azure_openai_api_key: str = ""
-    azure_openai_api_version: str = "2024-02-15-preview"
-    azure_openai_llm_deployment: str = ""
 
 
     # RAG (Qdrant)
@@ -68,18 +63,16 @@ class Settings(BaseSettings):
 
 
     def parsed_vector_dims(self) -> Dict[str, int]:
-        if not self.azure_openai_embedding_deployment:
-            return {}
-        model = self.azure_openai_embedding_deployment
-        # Dimensiones fijas para los modelos de Azure OpenAI más comunes.
-        if "large" in model:
-            dim = 3072
-        elif "small" in model:
-            dim = 1536
-        else:
-            # Valor por defecto si no podemos inferirlo del nombre.
-            dim = 1536
-        return {model: dim}
+        mapping: Dict[str, int] = {}
+        for pair in [p.strip() for p in self.vector_dims.split(",") if p.strip()]:
+            if ":" not in pair:
+                continue
+            model, dim_str = pair.split(":", 1)
+            try:
+                mapping[model.strip()] = int(dim_str.strip())
+            except ValueError:
+                continue
+        return mapping
 
     def parsed_api_keys(self) -> Dict[str, str]:
         mapping: Dict[str, str] = {}
