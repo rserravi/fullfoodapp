@@ -27,6 +27,8 @@ def test_rate_limit_middleware(client):
     while not isinstance(layer, RateLimitMiddleware):
         layer = layer.app
     layer.limit = layer.burst = 2
+    from api.rate_limit_store import store
+
     store._local.clear()
 
     payload = {"email": "user@example.com", "dev_pin": "000000"}
