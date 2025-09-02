@@ -34,7 +34,7 @@ TAGS_METADATA = [
 app = FastAPI(
     title="FullFoodApp API",
     version="0.2.0",
-    description="Backend de FullFoodApp (MVP). RAG local con Qdrant + Ollama, planificador semanal y lista de la compra.",
+    description="Backend de FullFoodApp (MVP). RAG local con Qdrant + Azure OpenAI, planificador semanal y lista de la compra.",
     default_response_class=ORJSONResponse,
     openapi_tags=TAGS_METADATA,
     contact={"name": "Equipo FullFoodApp", "email": "dev@fullfoodapp.local"},
@@ -81,9 +81,9 @@ app.include_router(user_recipes_router)
 
 @app.get("/health", tags=["admin"], summary="Healthcheck simple")
 async def health():
-    return {"status": "ok", "qdrant": settings.qdrant_url, "llm": settings.llm_model}
+    return {"status": "ok", "qdrant": settings.qdrant_url, "llm": settings.azure_openai_deployment_llm}
 
-@app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (Qdrant + Ollama)")
+@app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (Qdrant + Azure OpenAI)")
 async def health_deep():
     out = {"status": "ok", "checks": {}}
 
@@ -99,17 +99,17 @@ async def health_deep():
         out["status"] = "degraded"
     out["checks"]["qdrant"] = {"ok": q_ok, "latency_ms": round((time.perf_counter()-t0)*1000, 1), "error": q_err}
 
-    # Ollama
+    # Azure OpenAI
     t1 = time.perf_counter()
     o_ok, o_err = True, None
     try:
         async with httpx.AsyncClient(timeout=3) as c:
-            r = await c.get(settings.ollama_url.rstrip("/") + "/api/tags")
+            r = await c.get(settings.azure_openai_endpoint.rstrip("/") + "/api/tags")
             r.raise_for_status()
     except Exception as e:
         o_ok, o_err = False, str(e)
         out["status"] = "degraded"
-    out["checks"]["ollama"] = {"ok": o_ok, "latency_ms": round((time.perf_counter()-t1)*1000, 1), "error": o_err}
+    out["checks"]["azure_openai"] = {"ok": o_ok, "latency_ms": round((time.perf_counter()-t1)*1000, 1), "error": o_err}
 
     return out
 

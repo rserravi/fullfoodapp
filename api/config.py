@@ -11,11 +11,12 @@ class Settings(BaseSettings):
     service_env: str = "dev"  # dev|prod
     server_public_url: str = "http://localhost:8000"
 
-    # Ollama / LLM
-    ollama_url: str = "http://localhost:11434"
-    llm_model: str = "llama3.1:8b"
-    embedding_models: str = "mxbai-embed-large,jina/jina-embeddings-v2-base-es"
-    ollama_timeout_s: int = 180
+    # Azure OpenAI / LLM
+    azure_openai_endpoint: str = "http://localhost:11434"
+    azure_openai_api_key: str | None = None
+    azure_openai_deployment_llm: str = "gpt-4o-mini"
+    azure_openai_deployment_embeddings: str = "text-embedding-3-small"
+    azure_openai_timeout_s: int = 180
     llm_timeout_s: int = 45
     llm_max_concurrency: int = 3
 
@@ -55,7 +56,7 @@ class Settings(BaseSettings):
     max_body_bytes: int = 262144  # 256KB
 
     def parsed_embedding_models(self) -> list[str]:
-        return [m.strip() for m in self.embedding_models.split(",") if m.strip()]
+        return [m.strip() for m in self.azure_openai_deployment_embeddings.split(",") if m.strip()]
 
     def parsed_vector_dims(self) -> Dict[str, int]:
         out: Dict[str, int] = {}

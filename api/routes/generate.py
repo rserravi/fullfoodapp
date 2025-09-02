@@ -138,9 +138,9 @@ def _render_prompt(req: RecipeGenRequest, context: str) -> str:
     return filled
 
 async def _call_llm(prompt: str) -> str:
-    model = getattr(settings, "llm_model", None) or "llama3.1:8b"
-    url = settings.ollama_url.rstrip("/") + "/api/generate"
-    async with httpx.AsyncClient(timeout=getattr(settings, "ollama_timeout_s", 60.0)) as client:
+    model = getattr(settings, "azure_openai_deployment_llm", None) or "gpt-4o-mini"
+    url = settings.azure_openai_endpoint.rstrip("/") + "/api/generate"
+    async with httpx.AsyncClient(timeout=getattr(settings, "azure_openai_timeout_s", 60.0)) as client:
         r = await client.post(url, json={"model": model, "prompt": prompt, "stream": False})
         r.raise_for_status()
         data = r.json()

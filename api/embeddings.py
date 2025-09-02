@@ -11,14 +11,15 @@ def _short_key(model_name: str) -> str:
         return "jina"
     return name.replace(":", "_").replace("/", "_")
 
+# Posibles endpoints de embeddings
 EMBED_ENDPOINTS = ("/api/embed", "/api/embeddings")  # primero el oficial
 
 async def _embed_call(client: httpx.AsyncClient, model: str, inp):
     """
-    Llama a /api/embed (y si fallara, prueba /api/embeddings) con 'input'.
+    Llama al endpoint de embeddings de Azure OpenAI con 'input'.
     Devuelve el JSON ya cargado.
     """
-    base = settings.ollama_url.rstrip("/")
+    base = settings.azure_openai_endpoint.rstrip("/")
     payload = {"model": model, "input": inp}
     last_exc = None
     for ep in EMBED_ENDPOINTS:
@@ -38,7 +39,7 @@ def _parse_embed_response(data, expect_batch: bool) -> List[List[float]]:
     - batch:  {"embeddings":[[...],[...],...]} -> tal cual
     - compat: {"data":[{"embedding":[...]}]}   -> idem
     """
-    # Formato oficial Ollama /api/embed
+    # Formato oficial Azure OpenAI
     if isinstance(data, dict) and "embeddings" in data:
         emb = data["embeddings"]
         if not isinstance(emb, list):
@@ -66,7 +67,7 @@ async def _post_embeddings_batch(model: str, inputs: List[str]) -> List[List[flo
     Intento batch. Si el backend no soporta batch o devuelve tamaños inesperados,
     llamamos per-item.
     """
-    timeout = settings.ollama_timeout_s
+    timeout = settings.azure_openai_timeout_s
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             data = await _embed_call(client, model, inputs)

@@ -19,11 +19,11 @@ class LLMError(RuntimeError):
     wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
     retry=retry_if_exception_type((httpx.TimeoutException, httpx.TransportError, LLMError)),
 )
-async def _ollama_generate(prompt: str, model: str, temperature: float, max_tokens: int) -> str:
+async def _azure_generate(prompt: str, model: str, temperature: float, max_tokens: int) -> str:
     """
-    Llama a Ollama /api/generate con stream=false y devuelve el campo 'response' (texto).
+    Llama a Azure OpenAI con stream=false y devuelve el campo 'response' (texto).
     """
-    url = f"{settings.ollama_url.rstrip('/')}/api/generate"
+    url = f"{settings.azure_openai_endpoint.rstrip('/')}/api/generate"
     payload: Dict[str, Any] = {
         "model": model,
         "prompt": prompt,
@@ -37,18 +37,18 @@ async def _ollama_generate(prompt: str, model: str, temperature: float, max_toke
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, json=payload)
         if r.status_code >= 500:
-            raise LLMError(f"Ollama 5xx: {r.status_code}")
+            raise LLMError(f"Azure OpenAI 5xx: {r.status_code}")
         r.raise_for_status()
         data = r.json()
         if not isinstance(data, dict) or "response" not in data:
-            raise LLMError("Respuesta inválida de Ollama")
+            raise LLMError("Respuesta inválida de Azure OpenAI")
         return str(data["response"])
 
 async def generate_json(prompt: str, model: Optional[str] = None, temperature: float = 0.2, max_tokens: int = 1024) -> str:
     """
-    Genera texto (esperado JSON) usando Ollama, con límite de concurrencia.
+    Genera texto (esperado JSON) usando Azure OpenAI, con límite de concurrencia.
     """
-    mdl = model or settings.llm_model
+    mdl = model or settings.azure_openai_deployment_llm
     async with _llm_semaphore:
-        text = await _ollama_generate(prompt=prompt, model=mdl, temperature=temperature, max_tokens=max_tokens)
+        text = await _azure_generate(prompt=prompt, model=mdl, temperature=temperature, max_tokens=max_tokens)
         return text
