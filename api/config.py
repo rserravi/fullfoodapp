@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     def parsed_vector_dims(self) -> Dict[str, int]:
         mapping: Dict[str, int] = {}
         for pair in [p.strip() for p in self.vector_dims.split(",") if p.strip()]:
+
             if ":" not in pair:
                 continue
             model, dim_str = pair.split(":", 1)
