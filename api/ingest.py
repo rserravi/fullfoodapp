@@ -6,7 +6,7 @@ from api.embeddings import embed_dual
 from api.vectorstore import ensure_collection, upsert_documents
 
 async def main():
-    # Asegura la colección con dims desde .env (sin tocar Ollama)
+    # Asegura la colección con dims desde .env (sin tocar Azure OpenAI)
     await ensure_collection(settings.parsed_vector_dims())
 
     # Ruta robusta al seed JSON (independiente del cwd)

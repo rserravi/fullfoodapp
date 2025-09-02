@@ -22,3 +22,4 @@ def test_call_azure_openai_bad_response():
     client.responses.create.return_value = SimpleNamespace(output=[])
     with pytest.raises(ValueError):
         call_azure_openai("prompt", client, "gpt-4o-mini")
+

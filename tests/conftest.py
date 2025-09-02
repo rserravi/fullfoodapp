@@ -42,6 +42,7 @@ def client(request, monkeypatch):
     """
     - Para tests unitarios (sin marker 'integration'): no tocamos servicios externos como Azure OpenAI en startup.
     - Para tests de integración: usamos el startup real con todos los servicios.
+
     """
     is_integration = any(m.name == "integration" for m in request.node.iter_markers())
     if not is_integration:

@@ -20,6 +20,8 @@ endef
 help:
 	@echo "FullFoodApp - Makefile"
 	@echo
+	@echo "Variables Azure OpenAI en .env: AZURE_OPENAI_ENDPOINT y AZURE_OPENAI_API_KEY"
+	@echo
 	@echo "Tareas principales:"
 	@echo "  make up           -> Levanta Qdrant + venv + deps + arranca API (via bootstrap)"
 	@echo "  make ingest       -> Ingesta semillas (via bootstrap)"
@@ -30,6 +32,7 @@ help:
 	@echo "  make test         -> Ejecuta tests unitarios (excluye 'integration')"
 	@echo "  make test-unit    -> Alias de 'make test'"
         @echo "  make test-integration -> Ejecuta solo tests marcados como 'integration' (requiere servicios externos)"
+
 	@echo
 	@echo "Extras:"
 	@echo "  make venv         -> Crea venv e instala requirements (api + dev)"
@@ -37,7 +40,6 @@ help:
 	@echo "  make qdrant-up    -> Solo Qdrant"
 	@echo "  make qdrant-down  -> Para Qdrant"
 	@echo "  make qdrant-logs  -> Logs de Qdrant"
-	@echo "  make pull-models  -> Pull de modelos de Ollama (lee .env)"
 	@echo "  make kill-port    -> Mata proceso que escuche en $(PORT)"
 	@echo
 
@@ -83,23 +85,9 @@ qdrant-logs:
 	docker logs -f qdrant
 
 # --- Utilidades ---
-.PHONY: pull-models
-pull-models:
-	$(check_env)
-	@if ! command -v ollama >/dev/null 2>&1; then echo "⚠️  Ollama no está en PATH"; exit 1; fi
-	@LLM_MODEL=$$(sed -n 's/^LLM_MODEL=//p' $(ENV_FILE)); \
-	EMBEDDING_MODELS=$$(sed -n 's/^EMBEDDING_MODELS=//p' $(ENV_FILE)); \
-	echo "🔎 Pull LLM: $$LLM_MODEL"; \
-	[[ -n "$$LLM_MODEL" ]] && ollama pull "$$LLM_MODEL" || true; \
-	echo "🔎 Pull embeddings: $$EMBEDDING_MODELS"; \
-	IFS=','; for m in $$EMBEDDING_MODELS; do \
-	  m_trim=$${m// /}; \
-	  [[ -n "$$m_trim" ]] && echo "⬇️  $$m_trim" && ollama pull "$$m_trim"; \
-	done
-
 .PHONY: kill-port
 kill-port:
-	@PID=$$(lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t || true); \
+        @PID=$$(lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t || true); \
 	if [[ -n "$$PID" ]]; then \
 	  echo "🛑 Matando PID(s) $$PID en puerto $(PORT)"; \
 	  kill $$PID || true; sleep 1; \
@@ -125,6 +113,7 @@ test-integration: venv qdrant-up
         PYTHONPATH=. $(PY) -m api.ingest
         # Ejecuta solo los tests integration (requiere servicios externos reales)
         PYTHONPATH=. $(PYTEST) -m "integration" -q
+
 
 .PHONY: db-upgrade db-downgrade openapi seed-dev seed-rag test-e2e
 

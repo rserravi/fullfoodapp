@@ -3,13 +3,14 @@ from typing import List, Literal, Dict, Any
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Body, HTTPException, Depends
 from pathlib import Path
-import httpx, json, re
+import json, re
 
 from ..config import settings
 from ..schemas import RecipeNeutral
 from ..embeddings import embed_dual
 from ..vectorstore import search
 from ..security import get_current_user
+from ..llm import generate_json
 
 router = APIRouter(tags=["recipes"], prefix="/recipes")
 
@@ -138,9 +139,9 @@ def _render_prompt(req: RecipeGenRequest, context: str) -> str:
     return filled
 
 async def _call_llm(prompt: str) -> str:
-    model = getattr(settings, "llm_model", None) or "llama3.1:8b"
-    url = settings.ollama_url.rstrip("/") + "/api/generate"
-    async with httpx.AsyncClient(timeout=getattr(settings, "ollama_timeout_s", 60.0)) as client:
+    model = getattr(settings, "azure_openai_deployment_llm", None) or "gpt-4o-mini"
+    url = settings.azure_openai_endpoint.rstrip("/") + "/api/generate"
+    async with httpx.AsyncClient(timeout=getattr(settings, "azure_openai_timeout_s", 60.0)) as client:
         r = await client.post(url, json={"model": model, "prompt": prompt, "stream": False})
         r.raise_for_status()
         data = r.json()
@@ -175,7 +176,7 @@ async def generate_recipe(
     # 2) Preparar query_vectors
     dims = settings.parsed_vector_dims()
     query_vectors: Dict[str, List[float]] = {}
-    for key in dims.keys():  # p.ej. "mxbai","jina"
+    for key in dims.keys():  # e.g. vector names
         vecs = emb.get(key) or []
         if not vecs or not isinstance(vecs[0], list) or len(vecs[0]) != dims[key]:
             continue
