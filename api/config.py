@@ -13,7 +13,8 @@ class Settings(BaseSettings):
 
     # Azure OpenAI / LLM
     azure_openai_endpoint: str = "http://localhost:11434"
-    azure_openai_api_key: Optional[str] = None
+    azure_openai_api_key: str | None = None
+    azure_openai_api_version: str = "2024-02-15-preview"
 
     azure_openai_deployment_llm: str = "gpt-4o-mini"
     azure_openai_timeout_s: int = 180
@@ -67,9 +68,9 @@ class Settings(BaseSettings):
         for pair in [p.strip() for p in self.vector_dims.split(",") if p.strip()]:
             if ":" not in pair:
                 continue
-            name, dim = pair.split(":", 1)
+            model, dim_str = pair.split(":", 1)
             try:
-                mapping[name.strip()] = int(dim.strip())
+                mapping[model.strip()] = int(dim_str.strip())
 
             except ValueError:
                 continue
