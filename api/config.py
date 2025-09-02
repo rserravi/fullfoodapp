@@ -18,12 +18,11 @@ class Settings(BaseSettings):
     llm_timeout_s: int = 45
     llm_max_concurrency: int = 3
 
-    # Azure OpenAI (Embeddings)
-    azure_openai_endpoint: Optional[str] = None
-    azure_openai_api_key: Optional[str] = None
-    azure_openai_api_version: str = "2024-02-01"
-    azure_openai_embedding_deployment: str = "text-embedding-3-large"
-    embedding_models: str = "text-embedding-3-large"
+    # Azure OpenAI
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
+    azure_openai_api_version: str = "2024-02-15-preview"
+    azure_openai_llm_deployment: str = ""
 
 
     # RAG (Qdrant)

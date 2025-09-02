@@ -1,7 +1,8 @@
-# FullFoodApp (MVP) — API local + Qdrant + Ollama (RAG)
+# FullFoodApp (MVP) — API local + Qdrant + Azure OpenAI (RAG)
 
-Aplicación MVP para recetas/compra con **FastAPI**, **Qdrant** como vector store, **Azure OpenAI** para embeddings y **Ollama** como LLM.
-Incluye **RAG** con **RRF**, compilador de receta neutra → electrodomésticos (*airfryer*, *horno*), y configuración vía **.env**.
+Aplicación MVP para recetas/compra con **FastAPI**, **Qdrant** como vector store y **Azure OpenAI** para LLM/embeddings.
+Incluye **RAG híbrido** (mxbai + jina) con **RRF**, compilador de receta neutra → electrodomésticos (*airfryer*, *horno*), y configuración vía **.env**.
+
 
 ---
 
