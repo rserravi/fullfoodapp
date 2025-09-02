@@ -34,7 +34,7 @@ TAGS_METADATA = [
 app = FastAPI(
     title="FullFoodApp API",
     version="0.2.0",
-    description="Backend de FullFoodApp (MVP). RAG local con Qdrant + Ollama, planificador semanal y lista de la compra.",
+    description="Backend de FullFoodApp (MVP). RAG y generación con servicios externos, planificador semanal y lista de la compra.",
     default_response_class=ORJSONResponse,
     openapi_tags=TAGS_METADATA,
     contact={"name": "Equipo FullFoodApp", "email": "dev@fullfoodapp.local"},
@@ -83,7 +83,7 @@ app.include_router(user_recipes_router)
 async def health():
     return {"status": "ok", "qdrant": settings.qdrant_url, "llm": settings.llm_model}
 
-@app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (Qdrant + Ollama)")
+@app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (servicios externos)")
 async def health_deep():
     out = {"status": "ok", "checks": {}}
 

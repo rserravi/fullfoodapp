@@ -29,7 +29,7 @@ help:
 	@echo "Testing:"
 	@echo "  make test         -> Ejecuta tests unitarios (excluye 'integration')"
 	@echo "  make test-unit    -> Alias de 'make test'"
-	@echo "  make test-integration -> Ejecuta solo tests marcados como 'integration' (requiere Qdrant/Ollama)"
+        @echo "  make test-integration -> Ejecuta solo tests marcados como 'integration' (requiere servicios externos)"
 	@echo
 	@echo "Extras:"
 	@echo "  make venv         -> Crea venv e instala requirements (api + dev)"
@@ -120,11 +120,11 @@ test-unit: test
 
 .PHONY: test-integration
 test-integration: venv qdrant-up
-	$(check_env)
-	# Ingesta mínima antes de los tests de integración
-	PYTHONPATH=. $(PY) -m api.ingest
-	# Ejecuta solo los tests integration (requiere Qdrant y Ollama)
-	PYTHONPATH=. $(PYTEST) -m "integration" -q
+        $(check_env)
+        # Ingesta mínima antes de los tests de integración
+        PYTHONPATH=. $(PY) -m api.ingest
+        # Ejecuta solo los tests integration (requiere servicios externos reales)
+        PYTHONPATH=. $(PYTEST) -m "integration" -q
 
 .PHONY: db-upgrade db-downgrade openapi seed-dev seed-rag test-e2e
 
