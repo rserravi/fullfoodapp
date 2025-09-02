@@ -10,6 +10,7 @@ from ..schemas import RecipeNeutral
 from ..embeddings import embed_dual
 from ..vectorstore import search
 from ..security import get_current_user
+from ..llm import generate_json
 
 router = APIRouter(tags=["recipes"], prefix="/recipes")
 
@@ -151,6 +152,7 @@ async def _call_llm(prompt: str) -> str:
     )
     return response.choices[0].message.content
 
+
 def _extract_json(text: str) -> Dict[str, Any]:
     s = text.strip()
     # Limpia fences ```...``` si aparecen
@@ -180,7 +182,7 @@ async def generate_recipe(
     # 2) Preparar query_vectors
     dims = settings.parsed_vector_dims()
     query_vectors: Dict[str, List[float]] = {}
-    for key in dims.keys():  # p.ej. "mxbai","jina"
+    for key in dims.keys():  # e.g. vector names
         vecs = emb.get(key) or []
         if not vecs or not isinstance(vecs[0], list) or len(vecs[0]) != dims[key]:
             continue

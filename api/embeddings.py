@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import List, Dict, Optional
-import httpx
+from openai import AsyncAzureOpenAI
+
 from .config import settings
+
 
 def _short_key(model_name: str) -> str:
     name = model_name.lower()
@@ -11,84 +13,50 @@ def _short_key(model_name: str) -> str:
         return "jina"
     return name.replace(":", "_").replace("/", "_")
 
-EMBED_ENDPOINTS = ("/api/embed", "/api/embeddings")  # primero el oficial
 
-async def _embed_call(client: httpx.AsyncClient, model: str, inp):
-    """
-    Llama a /api/embed (y si fallara, prueba /api/embeddings) con 'input'.
-    Devuelve el JSON ya cargado.
-    """
-    base = settings.ollama_url.rstrip("/")
-    payload = {"model": model, "input": inp}
-    last_exc = None
-    for ep in EMBED_ENDPOINTS:
-        try:
-            r = await client.post(base + ep, json=payload)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            last_exc = e
-            continue
-    raise last_exc or RuntimeError("No se pudo invocar al endpoint de embeddings")
+_client: Optional[AsyncAzureOpenAI] = None
 
-def _parse_embed_response(data, expect_batch: bool) -> List[List[float]]:
-    """
-    Normaliza la respuesta:
-    - single: {"embeddings":[...]} -> [[...]]
-    - batch:  {"embeddings":[[...],[...],...]} -> tal cual
-    - compat: {"data":[{"embedding":[...]}]}   -> idem
-    """
-    # Formato oficial Ollama /api/embed
-    if isinstance(data, dict) and "embeddings" in data:
-        emb = data["embeddings"]
-        if not isinstance(emb, list):
-            raise ValueError("Campo 'embeddings' inválido")
-        # single → lista de floats; batch → lista de listas
-        if emb and isinstance(emb[0], (int, float)):
-            return [emb]
-        return emb
 
-    # Compat con otras variantes
-    if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
-        arr = []
-        for item in data["data"]:
-            v = item.get("embedding")
-            if not isinstance(v, list):
-                v = []
-            arr.append(v)
-        return arr
+def _get_client() -> AsyncAzureOpenAI:
+    global _client
+    if _client is None:
+        _client = AsyncAzureOpenAI(
+            api_key=settings.azure_openai_api_key,
+            api_version=settings.azure_openai_api_version,
+            azure_endpoint=settings.azure_openai_endpoint,
+        )
+    return _client
 
-    # Si llega aquí, devolvemos vacío para forzar fallback / chequeo aguas arriba
-    return [[]] if not expect_batch else [[] for _ in range(1 if not expect_batch else 0)]
 
 async def _post_embeddings_batch(model: str, inputs: List[str]) -> List[List[float]]:
-    """
-    Intento batch. Si el backend no soporta batch o devuelve tamaños inesperados,
-    llamamos per-item.
-    """
-    timeout = settings.ollama_timeout_s
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            data = await _embed_call(client, model, inputs)
-            vecs = _parse_embed_response(data, expect_batch=True)
-            # Validación simple: tamaño debe coincidir
-            if isinstance(vecs, list) and len(vecs) == len(inputs) and all(isinstance(v, list) for v in vecs):
-                return vecs
-        except Exception:
-            pass
+    """Obtiene embeddings en batch desde Azure OpenAI.
+    Si hay error o el tamaño no coincide, intenta per-item."""
 
-        # Fallback per-item
-        out: List[List[float]] = []
-        for t in inputs:
-            data = await _embed_call(client, model, t)
-            vecs = _parse_embed_response(data, expect_batch=False)
-            v = vecs[0] if vecs else []
-            out.append(v if isinstance(v, list) else [])
-        return out
+    client = _get_client()
+    try:
+        res = await client.embeddings.create(model=model, input=inputs)
+        data = getattr(res, "data", [])
+        vecs = [d.embedding for d in data]
+        if len(vecs) == len(inputs):
+            return vecs
+    except Exception:
+        pass
+
+    out: List[List[float]] = []
+    for t in inputs:
+        try:
+            r = await client.embeddings.create(model=model, input=[t])
+            emb = r.data[0].embedding if r.data else []
+        except Exception:
+            emb = []
+        out.append(emb)
+    return out
+
 
 async def embed_single(text: str, model: str) -> List[float]:
-    vecs = await _post_embeddings_batch(model, [text])
+    vecs = await embed_batch([text], model)
     return vecs[0] if vecs else []
+
 
 async def embed_batch(texts: List[str], model: str) -> List[List[float]]:
     return await _post_embeddings_batch(model, texts)
@@ -97,6 +65,6 @@ async def embed_dual(texts: List[str], models: Optional[List[str]] = None) -> Di
     models = models or settings.parsed_embedding_models()
     out: Dict[str, List[List[float]]] = {}
     for m in models:
-        vecs = await embed_batch(texts, m)
-        out[_short_key(m)] = vecs
+        out[m] = await embed_batch(texts, m)
     return out
+

@@ -22,18 +22,24 @@ ensure_env_file() {
 # === LOG ===
 LOG_LEVEL=INFO
 
-# === Ollama (LLM + Embeddings) ===
+# === Ollama (LLM) ===
 OLLAMA_URL=http://localhost:11434
 LLM_MODEL=llama3.1:8b
-EMBEDDING_MODELS=mxbai-embed-large,jina/jina-embeddings-v2-base-es
 OLLAMA_TIMEOUT_S=180
+
+# === Azure OpenAI (Embeddings) ===
+AZURE_OPENAI_ENDPOINT=https://example-endpoint.openai.azure.com
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_API_VERSION=2024-02-01
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
+EMBEDDING_MODELS=text-embedding-3-large
 
 # === Qdrant (vector DB) ===
 QDRANT_URL=http://localhost:6333
 COLLECTION_NAME=recipes
 
-# === Dimensiones de vectores (evitamos llamar a Ollama en startup) ===
-VECTOR_DIMS=mxbai:1024,jina:768
+# === Dimensiones de vectores (evitamos llamar a Azure en startup) ===
+VECTOR_DIMS=text-embedding-3-large:3072
 
 # === CORS (para frontend en V2) ===
 CORS_ALLOW_ORIGINS=*
@@ -79,17 +85,10 @@ ensure_ollama_models() {
   fi
   # Carga variables del .env (solo las que usamos aquí)
   # shellcheck disable=SC2046
-  export $(grep -E '^(OLLAMA_URL|LLM_MODEL|EMBEDDING_MODELS)=' "${ENV_FILE}" | xargs -0 -I{} bash -c 'echo {}' 2>/dev/null || true)
+  export $(grep -E '^(OLLAMA_URL|LLM_MODEL)=' "${ENV_FILE}" | xargs -0 -I{} bash -c 'echo {}' 2>/dev/null || true)
   local llm="${LLM_MODEL:-llama3.1:8b}"
-  local embeds="${EMBEDDING_MODELS:-mxbai-embed-large,jina/jina-embeddings-v2-base-es}"
-  msg "🔎 Comprobando modelos en Ollama…"
+  msg "🔎 Comprobando modelo en Ollama…"
   local missing=0
-  for m in ${embeds//,/ }; do
-    if ! ollama list | awk '{print $1}' | grep -q "^${m}$"; then
-      warn "⬇️  Faltaba ${m}, haciendo pull…"
-      ollama pull "${m}" || missing=1
-    fi
-  done
   if ! ollama list | awk '{print $1}' | grep -q "^${llm}$"; then
     warn "⬇️  Faltaba ${llm}, haciendo pull…"
     ollama pull "${llm}" || missing=1
@@ -97,7 +96,7 @@ ensure_ollama_models() {
   if [[ "${missing}" -eq 0 ]]; then
     msg "✅ Modelos OK"
   else
-    warn "⚠️  Algún modelo no pudo descargarse; revisa 'ollama list' y OLLAMA_URL."
+    warn "⚠️  El modelo no pudo descargarse; revisa 'ollama list' y OLLAMA_URL."
   fi
 }
 
