@@ -19,36 +19,39 @@ class LLMError(RuntimeError):
     wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
     retry=retry_if_exception_type((httpx.TimeoutException, httpx.TransportError, LLMError)),
 )
-async def _ollama_generate(prompt: str, model: str, temperature: float, max_tokens: int) -> str:
-    """
-    Llama a Ollama /api/generate con stream=false y devuelve el campo 'response' (texto).
-    """
-    url = f"{settings.ollama_url.rstrip('/')}/api/generate"
+async def _azure_generate(prompt: str, model: str, temperature: float, max_tokens: int) -> str:
+    """Invoca Azure OpenAI Responses API y devuelve el texto generado."""
+    base = settings.azure_openai_endpoint.rstrip("/")
+    url = f"{base}/openai/deployments/{model}/responses?api-version={settings.azure_openai_api_version}"
     payload: Dict[str, Any] = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {
-            "temperature": temperature,
-            "num_predict": max_tokens
-        }
+        "temperature": temperature,
+        "max_output_tokens": max_tokens,
+        "input": [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}],
+            }
+        ],
+        "response_format": {"type": "json_object"},
     }
+    headers = {"api-key": settings.azure_openai_api_key}
     timeout = settings.llm_timeout_s
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(url, json=payload)
+        r = await client.post(url, json=payload, headers=headers)
         if r.status_code >= 500:
-            raise LLMError(f"Ollama 5xx: {r.status_code}")
+            raise LLMError(f"Azure OpenAI 5xx: {r.status_code}")
         r.raise_for_status()
         data = r.json()
-        if not isinstance(data, dict) or "response" not in data:
-            raise LLMError("Respuesta inválida de Ollama")
-        return str(data["response"])
+        output = data.get("output") or []
+        if output and isinstance(output, list):
+            content = output[0].get("content") or []
+            if content and isinstance(content, list):
+                return str(content[0].get("text", ""))
+        raise LLMError("Respuesta inválida de Azure OpenAI")
 
 async def generate_json(prompt: str, model: Optional[str] = None, temperature: float = 0.2, max_tokens: int = 1024) -> str:
-    """
-    Genera texto (esperado JSON) usando Ollama, con límite de concurrencia.
-    """
-    mdl = model or settings.llm_model
+    """Genera texto (JSON) usando Azure OpenAI con límite de concurrencia."""
+    mdl = model or settings.azure_openai_llm_deployment
     async with _llm_semaphore:
-        text = await _ollama_generate(prompt=prompt, model=mdl, temperature=temperature, max_tokens=max_tokens)
+        text = await _azure_generate(prompt=prompt, model=mdl, temperature=temperature, max_tokens=max_tokens)
         return text
