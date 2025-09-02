@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     llm_timeout_s: int = 45
     llm_max_concurrency: int = 3
 
+    # Azure OpenAI
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
+    azure_openai_api_version: str = "2024-02-15-preview"
+    azure_openai_llm_deployment: str = ""
+
     # RAG (Qdrant)
     qdrant_url: str = "http://localhost:6333"
     collection_name: str = "recipes"
