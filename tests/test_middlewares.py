@@ -1,5 +1,6 @@
 import pytest
 from api.config import settings
+from api.rate_limit_store import store
 
 
 def test_protected_endpoint_requires_token(monkeypatch, client):
@@ -26,7 +27,7 @@ def test_rate_limit_middleware(client):
     while not isinstance(layer, RateLimitMiddleware):
         layer = layer.app
     layer.limit = layer.burst = 2
-    layer.buckets.clear()
+    store._local.clear()
 
     payload = {"email": "user@example.com", "dev_pin": "000000"}
     assert client.post("/auth/login", json=payload).status_code == 200
