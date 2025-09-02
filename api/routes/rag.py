@@ -53,7 +53,7 @@ async def rag_search(req: SearchRequest = Body(...), user_id: str = Depends(get_
 
     # 2) Construye el dict de vectores válidos
     qvecs: Dict[str, List[float]] = {}
-    for key in dims.keys():  # p.ej. "mxbai", "jina"
+    for key in dims.keys():  # e.g. vector names
         vecs = emb.get(key) or []
         if vecs and isinstance(vecs[0], list) and len(vecs[0]) == dims[key]:
             qvecs[key] = vecs[0]

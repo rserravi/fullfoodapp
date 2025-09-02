@@ -31,12 +31,21 @@ AZURE_OPENAI_EMBEDDING_DEPLOYMENT=
 LLM_MODEL=llama3.1:8b
 EMBEDDING_MODELS=mxbai-embed-large,jina/jina-embeddings-v2-base-es
 
+
+# === Azure OpenAI (Embeddings) ===
+AZURE_OPENAI_ENDPOINT=https://example-endpoint.openai.azure.com
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_API_VERSION=2024-02-01
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
+EMBEDDING_MODELS=text-embedding-3-large
+
 # === Qdrant (vector DB) ===
 QDRANT_URL=http://localhost:6333
 COLLECTION_NAME=recipes
 
 # === Dimensiones de vectores (evitamos llamar al LLM en startup) ===
 VECTOR_DIMS=mxbai:1024,jina:768
+
 
 # === CORS (para frontend en V2) ===
 CORS_ALLOW_ORIGINS=*
