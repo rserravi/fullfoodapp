@@ -11,25 +11,28 @@ class Settings(BaseSettings):
     service_env: str = "dev"  # dev|prod
     server_public_url: str = "http://localhost:8000"
 
-    # Azure OpenAI
-    azure_openai_endpoint: str = ""
-    azure_openai_api_key: str = ""
-    azure_openai_api_version: str = "2025-01-01-preview"
-    azure_openai_llm_deployment: str = "fullfood-recipes-v1"
-    azure_openai_embedding_deployment: Optional[str] = None
+    # Ollama / LLM
+    ollama_url: str = "http://localhost:11434"
+    llm_model: str = "llama3.1:8b"
+    ollama_timeout_s: int = 180
     llm_timeout_s: int = 45
     llm_max_concurrency: int = 3
 
-    # Azure OpenAI
-    azure_openai_endpoint: str = ""
-    azure_openai_api_key: str = ""
-    azure_openai_api_version: str = ""
-    azure_openai_llm_deployment: str = ""
+    # Azure OpenAI (Embeddings)
+    azure_openai_endpoint: Optional[str] = None
+    azure_openai_api_key: Optional[str] = None
+    azure_openai_api_version: str = "2024-02-01"
+    azure_openai_embedding_deployment: str = "text-embedding-3-large"
+    embedding_models: str = "text-embedding-3-large"
+
 
     # RAG (Qdrant)
     qdrant_url: str = "http://localhost:6333"
     collection_name: str = "recipes"
     rag_timeout_s: int = 10
+
+    # Vector dims
+    vector_dims: str = "text-embedding-3-large:3072"
 
     # CORS
     cors_allow_origins: str = "*"

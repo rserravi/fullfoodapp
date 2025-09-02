@@ -1,5 +1,5 @@
 from typing import List, Dict
-from .embeddings import embed_single
+from .embeddings import embed_dual
 from .vectorstore import search
 
 def rrf_fuse(results_lists: List[List], k: int = 60) -> List:
@@ -15,12 +15,12 @@ def rrf_fuse(results_lists: List[List], k: int = 60) -> List:
     return fused
 
 async def hybrid_retrieve(query: str, top_k_each: int = 5) -> List:
-    model_map = {"mxbai": "mxbai-embed-large", "jina": "jina-embeddings-v2-base-es"}
-    vec_mxbai = await embed_single(query, model_map["mxbai"])
-    vec_jina  = await embed_single(query, model_map["jina"])
-    res_mxbai = await search({"mxbai": vec_mxbai}, top_k_each)
-    res_jina  = await search({"jina": vec_jina},  top_k_each)
-    return rrf_fuse([res_mxbai, res_jina])
+    embs = await embed_dual([query])
+    results: List[List] = []
+    for key, vecs in embs.items():
+        if vecs and vecs[0]:
+            results.append(await search({key: vecs[0]}, top_k_each))
+    return rrf_fuse(results)
 
 def build_context(hits, max_chars: int = 1400) -> str:
     parts: List[str] = []
