@@ -55,6 +55,7 @@ async def generate_json(prompt: str, model: Optional[str] = None, temperature: f
     """
     Genera texto (esperado JSON) usando Azure OpenAI, con límite de concurrencia.
     """
+
     mdl = model or settings.azure_openai_llm_deployment
     async with _llm_semaphore:
         text = await _azure_generate(prompt=prompt, model=mdl, temperature=temperature, max_tokens=max_tokens)

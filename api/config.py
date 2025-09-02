@@ -11,11 +11,12 @@ class Settings(BaseSettings):
     service_env: str = "dev"  # dev|prod
     server_public_url: str = "http://localhost:8000"
 
-    # Ollama / LLM
-    ollama_url: str = "http://localhost:11434"
-    llm_model: str = "llama3.1:8b"
-    embedding_models: str = "mxbai-embed-large,jina/jina-embeddings-v2-base-es"
-    ollama_timeout_s: int = 180
+    # Azure OpenAI
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
+    azure_openai_api_version: str = "2025-01-01-preview"
+    azure_openai_llm_deployment: str = "fullfood-recipes-v1"
+    azure_openai_embedding_deployment: Optional[str] = None
     llm_timeout_s: int = 45
     llm_max_concurrency: int = 3
 
@@ -29,9 +30,6 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     collection_name: str = "recipes"
     rag_timeout_s: int = 10
-
-    # Vector dims
-    vector_dims: str = "mxbai:1024,jina:768"
 
     # CORS
     cors_allow_origins: str = "*"
@@ -61,16 +59,23 @@ class Settings(BaseSettings):
     max_body_bytes: int = 262144  # 256KB
 
     def parsed_embedding_models(self) -> list[str]:
-        return [m.strip() for m in self.embedding_models.split(",") if m.strip()]
+        if self.azure_openai_embedding_deployment:
+            return [self.azure_openai_embedding_deployment]
+        return []
 
     def parsed_vector_dims(self) -> Dict[str, int]:
-        out: Dict[str, int] = {}
-        for pair in self.vector_dims.split(","):
-            if not pair.strip():
-                continue
-            k, v = pair.split(":")
-            out[k.strip()] = int(v)
-        return out
+        if not self.azure_openai_embedding_deployment:
+            return {}
+        model = self.azure_openai_embedding_deployment
+        # Dimensiones fijas para los modelos de Azure OpenAI más comunes.
+        if "large" in model:
+            dim = 3072
+        elif "small" in model:
+            dim = 1536
+        else:
+            # Valor por defecto si no podemos inferirlo del nombre.
+            dim = 1536
+        return {model: dim}
 
     def parsed_api_keys(self) -> Dict[str, str]:
         mapping: Dict[str, str] = {}
