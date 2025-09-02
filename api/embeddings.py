@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import List, Dict, Optional
-
 from openai import AsyncAzureOpenAI
 
 from .config import settings
@@ -55,19 +54,17 @@ async def _post_embeddings_batch(model: str, inputs: List[str]) -> List[List[flo
 
 
 async def embed_single(text: str, model: str) -> List[float]:
-    vecs = await _post_embeddings_batch(model, [text])
+    vecs = await embed_batch([text], model)
     return vecs[0] if vecs else []
 
 
 async def embed_batch(texts: List[str], model: str) -> List[List[float]]:
     return await _post_embeddings_batch(model, texts)
 
-
 async def embed_dual(texts: List[str], models: Optional[List[str]] = None) -> Dict[str, List[List[float]]]:
     models = models or settings.parsed_embedding_models()
     out: Dict[str, List[List[float]]] = {}
     for m in models:
-        vecs = await embed_batch(texts, m)
-        out[_short_key(m)] = vecs
+        out[m] = await embed_batch(texts, m)
     return out
 
