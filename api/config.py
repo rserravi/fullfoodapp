@@ -13,11 +13,11 @@ class Settings(BaseSettings):
 
     # Azure OpenAI / LLM
     azure_openai_endpoint: str = "http://localhost:11434"
-    azure_openai_api_key: str | None = None
-    azure_openai_api_version: str = "2024-02-15-preview"
+    azure_openai_api_key: Optional[str] = None
+
     azure_openai_deployment_llm: str = "gpt-4o-mini"
-    azure_openai_deployment_embeddings: str = "text-embedding-3-small"
     azure_openai_timeout_s: int = 180
+    azure_openai_api_version: str = "2024-02-15-preview"
 
     llm_timeout_s: int = 45
     llm_max_concurrency: int = 3
@@ -59,18 +59,18 @@ class Settings(BaseSettings):
     max_body_bytes: int = 262144  # 256KB
 
     def parsed_embedding_models(self) -> list[str]:
-        return [m.strip() for m in self.azure_openai_deployment_embeddings.split(",") if m.strip()]
+        return list(self.parsed_vector_dims().keys())
 
 
     def parsed_vector_dims(self) -> Dict[str, int]:
         mapping: Dict[str, int] = {}
         for pair in [p.strip() for p in self.vector_dims.split(",") if p.strip()]:
-
             if ":" not in pair:
                 continue
-            model, dim_str = pair.split(":", 1)
+            name, dim = pair.split(":", 1)
             try:
-                mapping[model.strip()] = int(dim_str.strip())
+                mapping[name.strip()] = int(dim.strip())
+
             except ValueError:
                 continue
         return mapping
