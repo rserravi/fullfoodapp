@@ -22,18 +22,30 @@ ensure_env_file() {
 # === LOG ===
 LOG_LEVEL=INFO
 
-# === Ollama (LLM + Embeddings) ===
-OLLAMA_URL=http://localhost:11434
+# === Azure OpenAI ===
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_API_VERSION=2024-06-01
+AZURE_OPENAI_CHAT_DEPLOYMENT=
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=
 LLM_MODEL=llama3.1:8b
 EMBEDDING_MODELS=mxbai-embed-large,jina/jina-embeddings-v2-base-es
-OLLAMA_TIMEOUT_S=180
+
+
+# === Azure OpenAI (Embeddings) ===
+AZURE_OPENAI_ENDPOINT=https://example-endpoint.openai.azure.com
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_API_VERSION=2024-02-01
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
+EMBEDDING_MODELS=text-embedding-3-large
 
 # === Qdrant (vector DB) ===
 QDRANT_URL=http://localhost:6333
 COLLECTION_NAME=recipes
 
-# === Dimensiones de vectores (evitamos llamar a Ollama en startup) ===
+# === Dimensiones de vectores (evitamos llamar al LLM en startup) ===
 VECTOR_DIMS=mxbai:1024,jina:768
+
 
 # === CORS (para frontend en V2) ===
 CORS_ALLOW_ORIGINS=*
@@ -72,32 +84,12 @@ ensure_venv() {
   pip install -r "${REPO_ROOT}/api/requirements.txt"
 }
 
-ensure_ollama_models() {
-  if ! command -v ollama >/dev/null 2>&1; then
-    warn "⚠️  Ollama no está en PATH. Saltando chequeo/pull de modelos."
-    return
-  fi
-  # Carga variables del .env (solo las que usamos aquí)
-  # shellcheck disable=SC2046
-  export $(grep -E '^(OLLAMA_URL|LLM_MODEL|EMBEDDING_MODELS)=' "${ENV_FILE}" | xargs -0 -I{} bash -c 'echo {}' 2>/dev/null || true)
-  local llm="${LLM_MODEL:-llama3.1:8b}"
-  local embeds="${EMBEDDING_MODELS:-mxbai-embed-large,jina/jina-embeddings-v2-base-es}"
-  msg "🔎 Comprobando modelos en Ollama…"
-  local missing=0
-  for m in ${embeds//,/ }; do
-    if ! ollama list | awk '{print $1}' | grep -q "^${m}$"; then
-      warn "⬇️  Faltaba ${m}, haciendo pull…"
-      ollama pull "${m}" || missing=1
-    fi
-  done
-  if ! ollama list | awk '{print $1}' | grep -q "^${llm}$"; then
-    warn "⬇️  Faltaba ${llm}, haciendo pull…"
-    ollama pull "${llm}" || missing=1
-  fi
-  if [[ "${missing}" -eq 0 ]]; then
-    msg "✅ Modelos OK"
+export_azure_openai_env() {
+  if [[ -f "${ENV_FILE}" ]]; then
+    # shellcheck disable=SC2046
+    export $(grep -E '^AZURE_OPENAI_' "${ENV_FILE}" | xargs) || true
   else
-    warn "⚠️  Algún modelo no pudo descargarse; revisa 'ollama list' y OLLAMA_URL."
+    warn "⚠️  No se encontró ${ENV_FILE}; define AZURE_OPENAI_* manualmente."
   fi
 }
 
@@ -114,7 +106,7 @@ start_api() {
   ensure_docker
   ensure_qdrant
   ensure_venv
-  ensure_ollama_models
+  export_azure_openai_env
 
   local port
   port="$(free_port "${PORT_DEFAULT}")"
@@ -129,6 +121,7 @@ start_api() {
 ingest_seeds() {
   ensure_env_file
   ensure_venv
+  export_azure_openai_env
   msg "📥 Ingestando semillas en Qdrant…"
   PYTHONPATH="${REPO_ROOT}" "${VENV_DIR}/bin/python" -m api.ingest
   msg "✅ Ingesta OK"
@@ -163,7 +156,7 @@ case "${1:-}" in
 Usage: $(basename "$0") <command>
 
 Commands:
-  start|up        Levanta Qdrant, venv, deps, comprueba Ollama y arranca la API (puerto libre desde 8000)
+  start|up        Levanta Qdrant, venv, deps y arranca la API (requiere AZURE_OPENAI_* en .env; puerto libre desde 8000)
   ingest          Ingesta las semillas en Qdrant (usa .env y venv)
   health [port]   Health check de la API (default: 8000)
   down|stop       Para Qdrant (docker compose down)

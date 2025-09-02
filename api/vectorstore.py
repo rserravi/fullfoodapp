@@ -38,7 +38,7 @@ async def ensure_collection(vector_dims: Optional[Dict[str, int]] = None) -> Non
     await client.create_collection(collection_name=name, vectors_config=cfg)
 
 def _expected_vector_names() -> List[str]:
-    # Must match settings.vector_dims (e.g., "mxbai:1024,jina:768")
+    # Must match settings.vector_dims (e.g., "text-embedding-3-large:3072")
     return list(settings.parsed_vector_dims().keys())
 
 # -------- Upsert --------
@@ -88,7 +88,7 @@ async def upsert_documents(
         points.append(
             PointStruct(
                 id=str(uuid4()),
-                vector=vec_dict,     # {"mxbai": [...], "jina": [...]}
+                vector=vec_dict,     # {"text-embedding-3-large": [...]} 
                 payload=payload,
             )
         )

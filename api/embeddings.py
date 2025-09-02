@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import List, Dict, Optional
-import httpx
+from openai import AsyncAzureOpenAI
+
 from .config import settings
+
 
 def _short_key(model_name: str) -> str:
     name = model_name.lower()
@@ -69,27 +71,20 @@ async def _post_embeddings_batch(model: str, inputs: List[str]) -> List[List[flo
     """
     timeout = settings.azure_openai_timeout_s
     async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            data = await _embed_call(client, model, inputs)
-            vecs = _parse_embed_response(data, expect_batch=True)
-            # Validación simple: tamaño debe coincidir
-            if isinstance(vecs, list) and len(vecs) == len(inputs) and all(isinstance(v, list) for v in vecs):
-                return vecs
-        except Exception:
-            pass
 
-        # Fallback per-item
-        out: List[List[float]] = []
-        for t in inputs:
-            data = await _embed_call(client, model, t)
-            vecs = _parse_embed_response(data, expect_batch=False)
-            v = vecs[0] if vecs else []
-            out.append(v if isinstance(v, list) else [])
-        return out
+        try:
+            r = await client.embeddings.create(model=model, input=[t])
+            emb = r.data[0].embedding if r.data else []
+        except Exception:
+            emb = []
+        out.append(emb)
+    return out
+
 
 async def embed_single(text: str, model: str) -> List[float]:
-    vecs = await _post_embeddings_batch(model, [text])
+    vecs = await embed_batch([text], model)
     return vecs[0] if vecs else []
+
 
 async def embed_batch(texts: List[str], model: str) -> List[List[float]]:
     return await _post_embeddings_batch(model, texts)
@@ -98,6 +93,6 @@ async def embed_dual(texts: List[str], models: Optional[List[str]] = None) -> Di
     models = models or settings.parsed_embedding_models()
     out: Dict[str, List[List[float]]] = {}
     for m in models:
-        vecs = await embed_batch(texts, m)
-        out[_short_key(m)] = vecs
+        out[m] = await embed_batch(texts, m)
     return out
+
