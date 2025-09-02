@@ -27,36 +27,36 @@ class LLMError(RuntimeError):
 )
 async def _azure_generate(prompt: str, model: str, temperature: float, max_tokens: int) -> str:
     """
-    Llama a Azure OpenAI Chat Completions y devuelve el contenido generado.
+    Llama a Azure OpenAI con stream=false y devuelve el campo 'response' (texto).
     """
-    try:
-        resp = await _azure_client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-    except APIError as e:
-        status = getattr(e, "status_code", None)
-        if status and status >= 500:
-            raise LLMError(f"Azure OpenAI 5xx: {status}") from e
-        raise
+    url = f"{settings.azure_openai_endpoint.rstrip('/')}/api/generate"
+    payload: Dict[str, Any] = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens
+        }
+    }
+    timeout = settings.llm_timeout_s
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(url, json=payload)
+        if r.status_code >= 500:
+            raise LLMError(f"Azure OpenAI 5xx: {r.status_code}")
+        r.raise_for_status()
+        data = r.json()
+        if not isinstance(data, dict) or "response" not in data:
+            raise LLMError("Respuesta inválida de Azure OpenAI")
+        return str(data["response"])
 
-    content = None
-    if getattr(resp, "choices", None):
-        msg = resp.choices[0].message
-        if msg and getattr(msg, "content", None) is not None:
-            content = msg.content
-    if content is None:
-        raise LLMError("Respuesta inválida de Azure OpenAI")
-    return str(content)
 
 async def generate_json(prompt: str, model: Optional[str] = None, temperature: float = 0.2, max_tokens: int = 1024) -> str:
     """
     Genera texto (esperado JSON) usando Azure OpenAI, con límite de concurrencia.
     """
+    mdl = model or settings.azure_openai_deployment_llm
 
-    mdl = model or settings.azure_openai_llm_deployment
     async with _llm_semaphore:
         text = await _azure_generate(prompt=prompt, model=mdl, temperature=temperature, max_tokens=max_tokens)
         return text

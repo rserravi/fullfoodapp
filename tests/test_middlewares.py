@@ -22,12 +22,12 @@ def test_rate_limit_middleware(client):
     # Asegura que la pila de middlewares esté construida
     client.get("/health")
     from api.middleware.rate_limit import RateLimitMiddleware
+    from api.rate_limit_store import store
 
     layer = client.app.middleware_stack
     while not isinstance(layer, RateLimitMiddleware):
         layer = layer.app
     layer.limit = layer.burst = 2
-    from api.rate_limit_store import store
 
     store._local.clear()
 

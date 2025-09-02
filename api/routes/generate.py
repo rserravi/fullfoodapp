@@ -139,19 +139,13 @@ def _render_prompt(req: RecipeGenRequest, context: str) -> str:
     return filled
 
 async def _call_llm(prompt: str) -> str:
-    from openai import AsyncAzureOpenAI  # type: ignore
-
-    client = AsyncAzureOpenAI(
-        api_key=getattr(settings, "azure_openai_api_key", None),
-        api_version=getattr(settings, "azure_openai_api_version", None),
-        azure_endpoint=getattr(settings, "azure_openai_endpoint", None),
-    )
-    response = await client.chat.completions.create(
-        model=getattr(settings, "llm_model", ""),
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.choices[0].message.content
-
+    model = getattr(settings, "azure_openai_deployment_llm", None) or "gpt-4o-mini"
+    url = settings.azure_openai_endpoint.rstrip("/") + "/api/generate"
+    async with httpx.AsyncClient(timeout=getattr(settings, "azure_openai_timeout_s", 60.0)) as client:
+        r = await client.post(url, json={"model": model, "prompt": prompt, "stream": False})
+        r.raise_for_status()
+        data = r.json()
+        return data.get("response", "")
 
 def _extract_json(text: str) -> Dict[str, Any]:
     s = text.strip()

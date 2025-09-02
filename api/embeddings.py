@@ -13,37 +13,65 @@ def _short_key(model_name: str) -> str:
         return "jina"
     return name.replace(":", "_").replace("/", "_")
 
+# Posibles endpoints de embeddings
+EMBED_ENDPOINTS = ("/api/embed", "/api/embeddings")  # primero el oficial
 
-_client: Optional[AsyncAzureOpenAI] = None
+async def _embed_call(client: httpx.AsyncClient, model: str, inp):
+    """
+    Llama al endpoint de embeddings de Azure OpenAI con 'input'.
+    Devuelve el JSON ya cargado.
+    """
+    base = settings.azure_openai_endpoint.rstrip("/")
+    payload = {"model": model, "input": inp}
+    last_exc = None
+    for ep in EMBED_ENDPOINTS:
+        try:
+            r = await client.post(base + ep, json=payload)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            continue
+    raise last_exc or RuntimeError("No se pudo invocar al endpoint de embeddings")
 
+def _parse_embed_response(data, expect_batch: bool) -> List[List[float]]:
+    """
+    Normaliza la respuesta:
+    - single: {"embeddings":[...]} -> [[...]]
+    - batch:  {"embeddings":[[...],[...],...]} -> tal cual
+    - compat: {"data":[{"embedding":[...]}]}   -> idem
+    """
+    # Formato oficial Azure OpenAI
+    if isinstance(data, dict) and "embeddings" in data:
+        emb = data["embeddings"]
+        if not isinstance(emb, list):
+            raise ValueError("Campo 'embeddings' inválido")
+        # single → lista de floats; batch → lista de listas
+        if emb and isinstance(emb[0], (int, float)):
+            return [emb]
+        return emb
 
-def _get_client() -> AsyncAzureOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncAzureOpenAI(
-            api_key=settings.azure_openai_api_key,
-            api_version=settings.azure_openai_api_version,
-            azure_endpoint=settings.azure_openai_endpoint,
-        )
-    return _client
+    # Compat con otras variantes
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+        arr = []
+        for item in data["data"]:
+            v = item.get("embedding")
+            if not isinstance(v, list):
+                v = []
+            arr.append(v)
+        return arr
 
+    # Si llega aquí, devolvemos vacío para forzar fallback / chequeo aguas arriba
+    return [[]] if not expect_batch else [[] for _ in range(1 if not expect_batch else 0)]
 
 async def _post_embeddings_batch(model: str, inputs: List[str]) -> List[List[float]]:
-    """Obtiene embeddings en batch desde Azure OpenAI.
-    Si hay error o el tamaño no coincide, intenta per-item."""
+    """
+    Intento batch. Si el backend no soporta batch o devuelve tamaños inesperados,
+    llamamos per-item.
+    """
+    timeout = settings.azure_openai_timeout_s
+    async with httpx.AsyncClient(timeout=timeout) as client:
 
-    client = _get_client()
-    try:
-        res = await client.embeddings.create(model=model, input=inputs)
-        data = getattr(res, "data", [])
-        vecs = [d.embedding for d in data]
-        if len(vecs) == len(inputs):
-            return vecs
-    except Exception:
-        pass
-
-    out: List[List[float]] = []
-    for t in inputs:
         try:
             r = await client.embeddings.create(model=model, input=[t])
             emb = r.data[0].embedding if r.data else []

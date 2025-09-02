@@ -40,8 +40,9 @@ import api.main as main
 @pytest.fixture
 def client(request, monkeypatch):
     """
-    - Para tests unitarios (sin marker 'integration'): no tocamos Qdrant/Azure OpenAI en startup.
-    - Para tests de integración: usamos el startup real (Qdrant/Azure OpenAI).
+    - Para tests unitarios (sin marker 'integration'): no tocamos Qdrant/Azure OpenAI en startup.
+    - Para tests de integración: usamos el startup real (Qdrant/Azure OpenAI).
+
     """
     is_integration = any(m.name == "integration" for m in request.node.iter_markers())
     if not is_integration:

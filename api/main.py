@@ -36,12 +36,6 @@ app = FastAPI(
     version="0.2.0",
     description="Backend de FullFoodApp (MVP). RAG local con Qdrant + Azure OpenAI, planificador semanal y lista de la compra.",
 
-    default_response_class=ORJSONResponse,
-    openapi_tags=TAGS_METADATA,
-    contact={"name": "Equipo FullFoodApp", "email": "dev@fullfoodapp.local"},
-    license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
-)
-
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -82,12 +76,7 @@ app.include_router(user_recipes_router)
 
 @app.get("/health", tags=["admin"], summary="Healthcheck simple")
 async def health():
-    return {
-        "status": "ok",
-        "qdrant": settings.qdrant_url,
-        "llm": settings.llm_model,
-        "deployment": settings.azure_openai_llm_deployment,
-    }
+    return {"status": "ok", "qdrant": settings.qdrant_url, "llm": settings.azure_openai_deployment_llm}
 
 
 @app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (Qdrant + Azure OpenAI)")
@@ -111,20 +100,13 @@ async def health_deep():
     ao_ok, ao_err = True, None
     try:
         async with httpx.AsyncClient(timeout=3) as c:
-            url = (
-                settings.azure_openai_endpoint.rstrip("/")
-                + f"/openai/deployments/{settings.azure_openai_llm_deployment}/chat/completions"
-                + f"?api-version={settings.azure_openai_api_version}"
-            )
-            payload = {"messages": [{"role": "system", "content": "ping"}], "max_tokens": 1}
-            headers = {"api-key": settings.azure_openai_api_key}
-            r = await c.post(url, json=payload, headers=headers)
+            r = await c.get(settings.azure_openai_endpoint.rstrip("/") + "/api/tags")
 
             r.raise_for_status()
     except Exception as e:
         ao_ok, ao_err = False, str(e)
         out["status"] = "degraded"
-    out["checks"]["azure_openai"] = {"ok": ao_ok, "latency_ms": round((time.perf_counter()-t1)*1000, 1), "error": ao_err}
+    out["checks"]["azure_openai"] = {"ok": o_ok, "latency_ms": round((time.perf_counter()-t1)*1000, 1), "error": o_err}
 
 
     return out
