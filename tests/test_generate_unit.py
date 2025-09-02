@@ -1,29 +1,25 @@
-import asyncio
-import sys
-import types
+import pytest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
-from api.routes.generate import _call_llm
+from api.azure_openai import call_azure_openai
 
 
-def test_call_llm_uses_messages(monkeypatch):
-    calls = {}
+def _fake_response(text):
+    return SimpleNamespace(output=[SimpleNamespace(content=[SimpleNamespace(text=text)])])
 
-    async def fake_create(model, messages):
-        calls["model"] = model
-        calls["messages"] = messages
-        return types.SimpleNamespace(
-            choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="ok"))]
-        )
 
-    dummy_client = types.SimpleNamespace(
-        chat=types.SimpleNamespace(
-            completions=types.SimpleNamespace(create=fake_create)
-        )
-    )
+def test_call_azure_openai_parses_text():
+    client = Mock()
+    client.responses.create.return_value = _fake_response("hola")
+    out = call_azure_openai("prompt", client, "gpt-4o-mini")
+    assert out == "hola"
+    client.responses.create.assert_called_once_with(model="gpt-4o-mini", input="prompt")
 
-    openai_stub = types.SimpleNamespace(AsyncAzureOpenAI=lambda **kwargs: dummy_client)
-    monkeypatch.setitem(sys.modules, "openai", openai_stub)
 
-    result = asyncio.run(_call_llm("hola"))
-    assert result == "ok"
-    assert calls["messages"] == [{"role": "user", "content": "hola"}]
+def test_call_azure_openai_bad_response():
+    client = Mock()
+    client.responses.create.return_value = SimpleNamespace(output=[])
+    with pytest.raises(ValueError):
+        call_azure_openai("prompt", client, "gpt-4o-mini")
+

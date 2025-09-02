@@ -22,4 +22,6 @@ def test_integration_search_mxbai(client):
 
     assert r.status_code == 200, r.text
     hits = r.json().get("hits", [])
-    assert len(hits) >= 1, "No devolvió resultados; verifica que la ingesta se ejecutó y Qdrant está arriba."
+    assert len(hits) >= 1, (
+        "No devolvió resultados; verifica que la ingesta se ejecutó y los servicios externos están disponibles."
+    )

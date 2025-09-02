@@ -34,7 +34,13 @@ TAGS_METADATA = [
 app = FastAPI(
     title="FullFoodApp API",
     version="0.2.0",
-    description="Backend de FullFoodApp (MVP). RAG local con Qdrant + Azure OpenAI, planificador semanal y lista de la compra.",
+    description="Backend de FullFoodApp (MVP). RAG y generación con servicios externos, planificador semanal y lista de la compra.",
+    default_response_class=ORJSONResponse,
+    openapi_tags=TAGS_METADATA,
+    contact={"name": "Equipo FullFoodApp", "email": "dev@fullfoodapp.local"},
+    license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
+)
+
 
 # CORS
 app.add_middleware(
@@ -79,7 +85,8 @@ async def health():
     return {"status": "ok", "qdrant": settings.qdrant_url, "llm": settings.azure_openai_deployment_llm}
 
 
-@app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (Qdrant + Azure OpenAI)")
+@app.get("/health/deep", tags=["admin"], summary="Healthcheck profundo (servicios externos)")
+
 async def health_deep():
     out = {"status": "ok", "checks": {}}
 
