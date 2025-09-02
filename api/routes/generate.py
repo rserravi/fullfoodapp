@@ -3,7 +3,7 @@ from typing import List, Literal, Dict, Any
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Body, HTTPException, Depends
 from pathlib import Path
-import httpx, json, re
+import json, re
 
 from ..config import settings
 from ..schemas import RecipeNeutral
@@ -138,13 +138,18 @@ def _render_prompt(req: RecipeGenRequest, context: str) -> str:
     return filled
 
 async def _call_llm(prompt: str) -> str:
-    model = getattr(settings, "llm_model", None) or "llama3.1:8b"
-    url = settings.ollama_url.rstrip("/") + "/api/generate"
-    async with httpx.AsyncClient(timeout=getattr(settings, "ollama_timeout_s", 60.0)) as client:
-        r = await client.post(url, json={"model": model, "prompt": prompt, "stream": False})
-        r.raise_for_status()
-        data = r.json()
-        return data.get("response", "")
+    from openai import AsyncAzureOpenAI  # type: ignore
+
+    client = AsyncAzureOpenAI(
+        api_key=getattr(settings, "azure_openai_api_key", None),
+        api_version=getattr(settings, "azure_openai_api_version", None),
+        azure_endpoint=getattr(settings, "azure_openai_endpoint", None),
+    )
+    response = await client.chat.completions.create(
+        model=getattr(settings, "llm_model", ""),
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.choices[0].message.content
 
 def _extract_json(text: str) -> Dict[str, Any]:
     s = text.strip()
