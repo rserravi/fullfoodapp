@@ -14,10 +14,16 @@ class Settings(BaseSettings):
     # Ollama / LLM
     ollama_url: str = "http://localhost:11434"
     llm_model: str = "llama3.1:8b"
-    embedding_models: str = "mxbai-embed-large,jina/jina-embeddings-v2-base-es"
     ollama_timeout_s: int = 180
     llm_timeout_s: int = 45
     llm_max_concurrency: int = 3
+
+    # Azure OpenAI (Embeddings)
+    azure_openai_endpoint: Optional[str] = None
+    azure_openai_api_key: Optional[str] = None
+    azure_openai_api_version: str = "2024-02-01"
+    azure_openai_embedding_deployment: str = "text-embedding-3-large"
+    embedding_models: str = "text-embedding-3-large"
 
     # RAG (Qdrant)
     qdrant_url: str = "http://localhost:6333"
@@ -25,7 +31,7 @@ class Settings(BaseSettings):
     rag_timeout_s: int = 10
 
     # Vector dims
-    vector_dims: str = "mxbai:1024,jina:768"
+    vector_dims: str = "text-embedding-3-large:3072"
 
     # CORS
     cors_allow_origins: str = "*"

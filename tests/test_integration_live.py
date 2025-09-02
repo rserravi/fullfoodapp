@@ -1,6 +1,8 @@
 import pytest
+from api.config import settings
 
 pytestmark = pytest.mark.integration
+
 
 def test_integration_health(client):
     r = client.get("/health")
@@ -8,9 +10,10 @@ def test_integration_health(client):
     data = r.json()
     assert data["status"] == "ok"
 
-def test_integration_search_mxbai(client):
-    # Busca en inglés para forzar el vector mxbai si se usara 'auto'
-    payload = {"query": "zucchini bell peppers roast", "top_k": 1, "vector": "mxbai"}
+
+def test_integration_search_default(client):
+    vector = settings.parsed_embedding_models()[0]
+    payload = {"query": "zucchini bell peppers roast", "top_k": 1, "vector": vector}
     r = client.post("/search", json=payload)
     assert r.status_code == 200, r.text
     hits = r.json().get("hits", [])

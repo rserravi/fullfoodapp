@@ -175,7 +175,7 @@ async def generate_recipe(
     # 2) Preparar query_vectors
     dims = settings.parsed_vector_dims()
     query_vectors: Dict[str, List[float]] = {}
-    for key in dims.keys():  # p.ej. "mxbai","jina"
+    for key in dims.keys():  # e.g. vector names
         vecs = emb.get(key) or []
         if not vecs or not isinstance(vecs[0], list) or len(vecs[0]) != dims[key]:
             continue

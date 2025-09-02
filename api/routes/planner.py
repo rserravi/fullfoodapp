@@ -133,7 +133,7 @@ async def _generate_recipe_neutral(
     # 2) Vectores válidos para Qdrant
     dims = settings.parsed_vector_dims()
     query_vectors: Dict[str, List[float]] = {}
-    for key in dims.keys():  # p.ej. "mxbai", "jina"
+    for key in dims.keys():  # e.g. vector names
         vecs = emb.get(key) or []
         if vecs and isinstance(vecs[0], list) and len(vecs[0]) == dims[key]:
             query_vectors[key] = vecs[0]
